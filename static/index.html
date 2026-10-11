@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mac-cron-manager</title>
+<link id="favicon" rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #10141c; --panel-2: #151a24; --line: #1f2633;
+    --text: #c7d0e0; --dim: #5c6780; --accent: #7aa2f7;
+    --ok: #3fb950; --fail: #f7546a; --warn: #e0af68; --run: #e0af68;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); }
+  body { display: flex; flex-direction: column; }
+  button { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--line);
+           border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .35; cursor: default; border-color: var(--line); color: inherit; }
+  kbd { font: inherit; color: var(--accent); }
+
+  header { display: flex; gap: 22px; align-items: center; padding: 8px 16px; background: var(--panel);
+           border-bottom: 1px solid var(--line); white-space: nowrap; overflow-x: auto; }
+  .host { background: var(--accent); color: var(--bg); font-weight: 700; padding: 0 8px; border-radius: 3px; }
+  .spacer { flex: 1; }
+  .dim { color: var(--dim); }
+  .ok { color: var(--ok); } .fail { color: var(--fail); } .warn { color: var(--warn); }
+
+  main { flex: 1; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+  .tablewrap { overflow: auto; max-height: 45vh; border-bottom: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--dim);
+       padding: 6px 12px; border-bottom: 1px solid var(--line); text-transform: uppercase; font-size: 11px; letter-spacing: .06em; }
+  td { padding: 6px 12px; border-bottom: 1px solid #141924; white-space: nowrap; vertical-align: middle; }
+  tr.job { cursor: pointer; }
+  tr.job:hover td { background: #121722; }
+  tr.job.sel td { background: #18203a; }
+  tr.job.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  tr.off .name { text-decoration: line-through; color: var(--dim); }
+  .name { font-weight: 700; }
+  .desc { color: var(--dim); font-size: 11px; }
+  .dot { font-size: 14px; }
+  .spin { display: inline-block; color: var(--run); animation: spin 1s steps(8) infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hist { display: inline-flex; gap: 2px; vertical-align: middle; }
+  .hist i { width: 5px; height: 14px; border-radius: 1px; background: var(--ok); }
+  .hist i.fail { background: var(--fail); } .hist i.skipped { background: var(--warn); }
+  .actions { display: flex; gap: 6px; }
+
+  .detail { display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; gap: 8px; }
+  .cmd { color: #7dcfff; word-break: break-all; }
+  .cmd::before { content: "$ "; color: var(--dim); }
+  .banner { border: 1px solid var(--fail); color: var(--fail); background: #2a1118; padding: 6px 10px; border-radius: 4px; }
+  .banner.hint { border-color: var(--warn); color: var(--warn); background: #2a2111; }
+  .logbar { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; }
+  pre#log { flex: 1; margin: 0; overflow: auto; background: #07090d; border: 1px solid var(--line); border-radius: 4px;
+            padding: 10px 12px; font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; min-height: 120px; }
+  pre#log .err { color: var(--fail); } pre#log .good { color: var(--ok); }
+
+  footer { padding: 6px 16px; background: var(--panel); border-top: 1px solid var(--line); color: var(--dim);
+           display: flex; gap: 18px; flex-wrap: wrap; }
+
+  dialog { width: min(1000px, 94vw); background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 8px; padding: 0; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog .head { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  dialog textarea { width: 100%; height: 55vh; background: #07090d; color: var(--text); border: 0; padding: 12px 14px;
+                    font: 13px/1.5 var(--mono); resize: vertical; outline: none; }
+  dialog .foot { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+  #edit-err { color: var(--fail); white-space: pre-wrap; flex: 1; }
+
+  #toast { position: fixed; right: 16px; bottom: 44px; display: flex; flex-direction: column; gap: 6px; }
+  #toast div { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+               padding: 6px 12px; border-radius: 4px; }
+  #toast div.error { border-left-color: var(--fail); }
+  .empty { padding: 24px 16px; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <span class="host" id="host">…</span>
+  <span>cron <span id="cron">…</span></span>
+  <span id="count" class="dim"></span>
+  <span id="running" class="dim"></span>
+  <span id="failing" class="dim"></span>
+  <span class="spacer"></span>
+  <span id="clock" class="dim"></span>
+  <button id="edit-btn" title="e">edit crontab</button>
+</header>
+
+<main>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>job</th><th>schedule</th><th>next</th><th>last</th><th>took</th><th>history</th><th></th></tr></thead>
+      <tbody id="jobs"></tbody>
+    </table>
+    <div id="empty" class="empty" hidden>No cron jobs yet. Press <kbd>e</kbd> to edit the crontab.</div>
+  </div>
+  <section class="detail" id="detail"></section>
+</main>
+
+<footer>
+  <span><kbd>j/k</kbd> select</span><span><kbd>r</kbd> run now</span><span><kbd>space</kbd> enable/disable</span>
+  <span><kbd>w</kbd> monitor</span><span><kbd>e</kbd> edit crontab</span><span><kbd>g</kbd> jump to log end</span>
+</footer>
+
+<dialog id="editor">
+  <div class="head"><span>crontab -e</span><span class="dim">ctrl/⌘+s save · esc cancel · a backup is kept on every save</span></div>
+  <textarea id="crontab" spellcheck="false"></textarea>
+  <div class="foot"><span id="edit-err"></span><button id="cancel">cancel</button><button id="save">save</button></div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let state = { jobs: [] };
+let selected = null;          // job name
+let logSig = null;
+let follow = true;            // keep the log scrolled to the bottom
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function ago(ts) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  for (const [u, n] of [["d", 86400], ["h", 3600], ["m", 60]]) if (s >= n) return `${Math.floor(s / n)}${u} ago`;
+  return `${s}s ago`;
+}
+const dur = (s) => (s = Math.floor(s), s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`);
+
+function toast(msg, error = false) {
+  const el = document.createElement("div");
+  el.textContent = msg;
+  if (error) el.className = "error";
+  $("#toast").append(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json", "X-MCM": "1" }, body: JSON.stringify(body),
+  };
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function statusDot(j) {
+  if (j.running_since) return '<span class="spin">◐</span>';
+  if (!j.enabled) return '<span class="dot dim">○</span>';
+  if (!j.monitored) return '<span class="dot dim">?</span>';
+  if (!j.last) return '<span class="dot dim">·</span>';
+  return `<span class="dot ${j.last.status === "ok" ? "ok" : j.last.status === "fail" ? "fail" : "warn"}">●</span>`;
+}
+
+function lastCell(j) {
+  if (j.running_since) return '<span class="warn">running</span>';
+  if (!j.monitored) return '<span class="dim">not monitored</span>';
+  if (!j.last) return '<span class="dim">never</span>';
+  if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
+  if (j.last.status === "skipped") return `<span class="warn">${ago(j.last.end)} · skipped</span>`;
+  return ago(j.last.end);
+}
+
+function tookCell(j) {
+  if (j.running_since) return `<span class="warn">${dur(Date.now() / 1000 - j.running_since)}</span>`;
+  return j.last && j.last.status !== "skipped" ? dur(j.last.end - j.last.start) : "";
+}
+
+function render() {
+  const jobs = state.jobs;
+  if (!jobs.find((j) => j.name === selected)) selected = jobs[0]?.name ?? null;
+
+  $("#host").textContent = state.host;
+  $("#cron").innerHTML = state.cron_up ? '<span class="ok">● up</span>' : '<span class="fail">● down</span>';
+  const running = jobs.filter((j) => j.running_since).length;
+  const failing = jobs.filter((j) => j.enabled && j.last?.status === "fail").length;
+  $("#count").textContent = `${jobs.length} jobs`;
+  $("#running").innerHTML = running ? `<span class="warn">${running} running</span>` : "0 running";
+  $("#failing").innerHTML = failing ? `<span class="fail">${failing} failing</span>` : "0 failing";
+  document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? `◐ mac-cron-manager` : "mac-cron-manager";
+  setFavicon(failing ? "#f7546a" : running ? "#e0af68" : "#3fb950");
+
+  $("#empty").hidden = jobs.length > 0;
+  $("#jobs").innerHTML = jobs.map((j) => `
+    <tr class="job ${j.name === selected ? "sel" : ""} ${j.enabled ? "" : "off"}" data-name="${esc(j.name)}">
+      <td>${statusDot(j)}</td>
+      <td class="name">${esc(j.name)}</td>
+      <td>${esc(j.schedule)}<div class="desc">${esc(j.desc)}</div></td>
+      <td>${esc(j.next)}</td>
+      <td>${lastCell(j)}</td>
+      <td>${tookCell(j)}</td>
+      <td><span class="hist">${j.history.map((h) => `<i class="${h}" title="${h}"></i>`).join("")}</span></td>
+      <td><span class="actions">
+        <button data-act="run" ${j.running_since ? "disabled" : ""} title="r">▶ run</button>
+        <button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>
+        ${j.monitored ? "" : '<button data-act="wrap" title="w">monitor</button>'}
+      </span></td>
+    </tr>`).join("");
+  renderDetail();
+}
+
+function renderDetail() {
+  const j = state.jobs.find((j) => j.name === selected);
+  const d = $("#detail");
+  if (!j) { d.innerHTML = ""; logSig = null; return; }
+  const head = `${esc(j.name)}<span class="dim"> · ${esc(j.desc)}${j.enabled ? "" : " · disabled"}</span>`;
+  if (d.dataset.head !== head + j.command + j.warning + j.monitored) {
+    d.dataset.head = head + j.command + j.warning + j.monitored;
+    d.innerHTML = `
+      <div><span class="name">${head}</span></div>
+      <div class="cmd">${esc(j.command)}</div>
+      ${j.warning ? `<div class="banner">⚠ ${esc(j.warning)}</div>` : ""}
+      ${j.monitored ? "" : '<div class="banner hint">Not monitored: press <kbd>w</kbd> to wrap it in cronmon and get status + logs.</div>'}
+      <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
+      <pre id="log"></pre>`;
+    logSig = null;
+    $("#log").addEventListener("scroll", (e) => {
+      const el = e.target;
+      follow = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+    });
+  }
+  loadLog();
+}
+
+async function loadLog() {
+  const j = state.jobs.find((j) => j.name === selected);
+  if (!j || !j.monitored) { if ($("#log")) $("#log").textContent = ""; return; }
+  try {
+    const data = await api(`/api/log?name=${encodeURIComponent(j.name)}`);
+    if (j.name !== selected) return;
+    $("#logfile").textContent = data.file;
+    $("#logstate").innerHTML = j.running_since ? '<span class="warn">● live</span>' : "last run";
+    const sig = data.file + data.text.length + data.text.slice(-200);
+    if (sig === logSig) return;
+    logSig = sig;
+    const log = $("#log");
+    log.innerHTML = data.exists ? esc(data.text)
+      .replace(/^.*(error|fail|denied|not permitted).*$/gim, '<span class="err">$&</span>')
+      .replace(/^.*\b(uploaded \d+ file|done|success)\b.*$/gim, '<span class="good">$&</span>')
+      : '<span class="dim">(no runs yet)</span>';
+    if (follow) log.scrollTop = log.scrollHeight;
+  } catch (e) { /* server restarting; next poll retries */ }
+}
+
+function setFavicon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="${color}"/></svg>`;
+  $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+async function refresh() {
+  try {
+    state = await api("/api/state");
+    render();
+  } catch (e) {
+    $("#cron").innerHTML = '<span class="fail">dashboard server unreachable</span>';
+  }
+}
+
+async function act(action, name) {
+  const j = state.jobs.find((j) => j.name === name);
+  if (!j) return;
+  try {
+    await api(`/api/${action}`, { line: j.line, raw: j.raw });
+    toast({ run: `started ${j.name}`, toggle: `${j.name} ${j.enabled ? "disabled" : "enabled"}`, wrap: `${j.name} is now monitored` }[action]);
+  } catch (e) { toast(e.message, true); }
+  refresh();
+}
+
+// ---- crontab editor
+async function openEditor() {
+  const { text } = await api("/api/crontab");
+  $("#crontab").value = text;
+  $("#edit-err").textContent = "";
+  $("#editor").showModal();
+  $("#crontab").focus();
+}
+async function saveEditor() {
+  try {
+    await api("/api/crontab", { text: $("#crontab").value });
+    $("#editor").close();
+    toast("crontab saved");
+    refresh();
+  } catch (e) { $("#edit-err").textContent = e.message; }
+}
+$("#edit-btn").onclick = openEditor;
+$("#save").onclick = saveEditor;
+$("#cancel").onclick = () => $("#editor").close();
+$("#crontab").addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); saveEditor(); }
+  if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "\t"); }
+});
+
+// ---- table clicks
+$("#jobs").addEventListener("click", (e) => {
+  const row = e.target.closest("tr.job");
+  if (!row) return;
+  const btn = e.target.closest("button[data-act]");
+  if (btn) return act(btn.dataset.act, row.dataset.name);
+  if (selected !== row.dataset.name) { selected = row.dataset.name; follow = true; render(); }
+});
+
+// ---- keyboard
+document.addEventListener("keydown", (e) => {
+  if ($("#editor").open || e.metaKey || e.ctrlKey || e.altKey) return;
+  const names = state.jobs.map((j) => j.name);
+  const i = names.indexOf(selected);
+  const move = (d) => { selected = names[Math.min(names.length - 1, Math.max(0, i + d))]; follow = true; render(); };
+  switch (e.key) {
+    case "j": case "ArrowDown": e.preventDefault(); move(1); break;
+    case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
+    case "r": act("run", selected); break;
+    case " ": e.preventDefault(); act("toggle", selected); break;
+    case "w": if (!state.jobs[i]?.monitored) act("wrap", selected); break;
+    case "e": e.preventDefault(); openEditor(); break;
+    case "g": follow = true; const l = $("#log"); if (l) l.scrollTop = l.scrollHeight; break;
+  }
+});
+
+setInterval(() => { $("#clock").textContent = new Date().toLocaleString("sv-SE"); }, 1000);
+(function poll() { refresh().finally(() => setTimeout(poll, state.jobs.some((j) => j.running_since) ? 1000 : 2500)); })();
+</script>
+</body>
+</html>
