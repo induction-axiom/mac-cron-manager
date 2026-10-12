@@ -76,6 +76,14 @@
                padding: 6px 12px; border-radius: 4px; }
   #toast div.error { border-left-color: var(--fail); }
   .empty { padding: 24px 16px; color: var(--dim); }
+  .mode { border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; color: var(--dim); }
+  .mode a { color: var(--accent); }
+  #setup { padding: 32px 24px; max-width: 760px; }
+  #setup h2 { font-size: 15px; margin: 0 0 12px; }
+  #setup ol { padding-left: 20px; } #setup li { margin: 10px 0; }
+  #setup code { display: block; background: #07090d; border: 1px solid var(--line); border-radius: 4px;
+                padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+  #setup .waiting { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -86,9 +94,25 @@
   <span id="running" class="dim"></span>
   <span id="failing" class="dim"></span>
   <span class="spacer"></span>
+  <span id="mode" class="mode" hidden></span>
   <span id="clock" class="dim"></span>
   <button id="edit-btn" title="e">edit crontab</button>
 </header>
+
+<section id="setup" hidden>
+  <h2>No local agent found at <span id="agent-url"></span> <span class="waiting">· retrying…</span></h2>
+  <p class="dim">This page is only the interface. A small agent on your Mac reads the crontab and runs jobs;
+     the page talks to it over 127.0.0.1 and nothing leaves your machine.</p>
+  <ol>
+    <li>Install the agent (macOS, Python 3.10+). It starts at login from then on:
+      <code>git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager &amp;&amp; ~/mac-cron-manager/install.sh</code></li>
+    <li>When Chrome asks whether this site may access apps and services on your device, choose <b>Allow</b>.</li>
+    <li>Already installed but stopped? Restart it:
+      <code>launchctl kickstart -k gui/$(id -u)/local.mac-cron-manager</code></li>
+  </ol>
+  <p class="dim">Prefer not to use a hosted page? Open <a id="local-link" href="http://127.0.0.1:7878">http://127.0.0.1:7878</a>
+     once the agent runs: it serves this same dashboard, with crontab editing enabled.</p>
+</section>
 
 <main>
   <div class="tablewrap">
@@ -116,6 +140,10 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
+// Served by the agent itself (same origin), or hosted elsewhere and talking to the agent on 127.0.0.1.
+const LOCAL = location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(location.hostname);
+const AGENT = LOCAL ? "" : (new URLSearchParams(location.search).get("agent") || "http://127.0.0.1:7878");
+const can = (action) => (state.allowed || []).includes(action);
 let state = { jobs: [] };
 let selected = null;          // job name
 let logSig = null;
@@ -142,7 +170,7 @@ async function api(path, body) {
   const opts = body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json", "X-MCM": "1" }, body: JSON.stringify(body),
   };
-  const res = await fetch(path, opts);
+  const res = await fetch(AGENT + path, opts);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -175,6 +203,10 @@ function render() {
   if (!jobs.find((j) => j.name === selected)) selected = jobs[0]?.name ?? null;
 
   $("#host").textContent = state.host;
+  const mode = $("#mode");
+  mode.hidden = state.caller !== "remote";
+  mode.innerHTML = `hosted · run/enable only · <a href="${state.local_url}">edit locally</a>`;
+  $("#edit-btn").hidden = !can("crontab");
   $("#cron").innerHTML = state.cron_up ? '<span class="ok">● up</span>' : '<span class="fail">● down</span>';
   const running = jobs.filter((j) => j.running_since).length;
   const failing = jobs.filter((j) => j.enabled && j.last?.status === "fail").length;
@@ -195,9 +227,9 @@ function render() {
       <td>${tookCell(j)}</td>
       <td><span class="hist">${j.history.map((h) => `<i class="${h}" title="${h}"></i>`).join("")}</span></td>
       <td><span class="actions">
-        <button data-act="run" ${j.running_since ? "disabled" : ""} title="r">▶ run</button>
-        <button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>
-        ${j.monitored ? "" : '<button data-act="wrap" title="w">monitor</button>'}
+        ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">▶ run</button>` : ""}
+        ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}
+        ${j.monitored || !can("wrap") ? "" : '<button data-act="wrap" title="w">monitor</button>'}
       </span></td>
     </tr>`).join("");
   renderDetail();
@@ -214,7 +246,7 @@ function renderDetail() {
       <div><span class="name">${head}</span></div>
       <div class="cmd">${esc(j.command)}</div>
       ${j.warning ? `<div class="banner">⚠ ${esc(j.warning)}</div>` : ""}
-      ${j.monitored ? "" : '<div class="banner hint">Not monitored: press <kbd>w</kbd> to wrap it in cronmon and get status + logs.</div>'}
+      ${j.monitored ? "" : `<div class="banner hint">Not monitored: ${can("wrap") ? "press <kbd>w</kbd> to wrap" : "open the local page to wrap"} it in cronmon and get status + logs.</div>`}
       <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
       <pre id="log"></pre>`;
     logSig = null;
@@ -251,12 +283,25 @@ function setFavicon(color) {
   $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
 }
 
+function showSetup(on) {
+  $("#setup").hidden = !on;
+  document.querySelector("main").hidden = on;
+  document.querySelector("footer").hidden = on;
+}
+
 async function refresh() {
   try {
     state = await api("/api/state");
+    showSetup(false);
     render();
   } catch (e) {
-    $("#cron").innerHTML = '<span class="fail">dashboard server unreachable</span>';
+    state = { jobs: [] };
+    showSetup(true);
+    $("#agent-url").textContent = AGENT || location.origin;
+    $("#host").textContent = "no agent";
+    $("#cron").innerHTML = '<span class="fail">unreachable</span>';
+    document.title = "mac-cron-manager · no agent";
+    setFavicon("#5c6780");
   }
 }
 
@@ -314,8 +359,8 @@ document.addEventListener("keydown", (e) => {
     case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
     case "r": act("run", selected); break;
     case " ": e.preventDefault(); act("toggle", selected); break;
-    case "w": if (!state.jobs[i]?.monitored) act("wrap", selected); break;
-    case "e": e.preventDefault(); openEditor(); break;
+    case "w": if (can("wrap") && !state.jobs[i]?.monitored) act("wrap", selected); break;
+    case "e": if (can("crontab")) { e.preventDefault(); openEditor(); } break;
     case "g": follow = true; const l = $("#log"); if (l) l.scrollTop = l.scrollHeight; break;
   }
 });
