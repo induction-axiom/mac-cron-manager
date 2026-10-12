@@ -51,7 +51,8 @@ def job_json(job: core.Job) -> dict:
         "schedule": job.schedule, "desc": core.describe(job.schedule), "command": job.command,
         "enabled": job.enabled, "monitored": job.monitored, "running_since": job.running_since,
         "next": next_label, "next_ts": next_ts, "last": job.last,
-        "history": [r["status"] for r in job.runs], "warning": job.warning(),
+        "history": [{"status": r["status"], "reason": r.get("reason", "")} for r in job.runs],
+        "warning": job.warning(),
     }
 
 

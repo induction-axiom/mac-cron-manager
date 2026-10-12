@@ -1,24 +1,46 @@
 #!/bin/bash
-# cronmon NAME COMMAND [ARGS...]
+# cronmon [--unmetered] NAME COMMAND [ARGS...]
 #
 # Run COMMAND and record the result for mac-cron-manager: start/end time, exit code and
 # the command's output. Use it as the command of a crontab line, e.g.
 #   */30 * * * * /path/to/mac-cron-manager/cronmon photo-sync /path/to/run.sh
 # For shell syntax (pipes, redirects) wrap it: cronmon NAME /bin/sh -c '...'
+#
+# --unmetered  only run on a fine network (see netcheck): skip the run on a phone
+#              hotspot, and stop it if the Mac switches to one while it's running.
 set -u
+
+here="$(cd "$(dirname "$0")" && pwd)"
+unmetered=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --unmetered) unmetered=1; shift ;;
+    --) shift; break ;;
+    -*) echo "cronmon: unknown option $1" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
 
 name="$1"; shift
 dir="${MCM_STATE:-$HOME/.local/state/mac-cron-manager}/jobs/$name"
 mkdir -p "$dir"
 
-record() {  # start end exit status
-  printf '{"start":%s,"end":%s,"exit":%s,"status":"%s"}\n' "$1" "$2" "$3" "$4" >>"$dir/runs.jsonl"
+record() {  # start end exit status [reason]
+  local reason=""
+  [ -n "${5:-}" ] && reason=$(printf ',"reason":"%s"' "${5//\"/\'}")
+  printf '{"start":%s,"end":%s,"exit":%s,"status":"%s"%s}\n' "$1" "$2" "$3" "$4" "$reason" >>"$dir/runs.jsonl"
 }
 
 # Don't pile up runs: skip if the previous one is still going.
 if [ -f "$dir/running" ] && kill -0 "$(cut -f1 "$dir/running")" 2>/dev/null; then
   now=$(date +%s)
-  record "$now" "$now" null skipped
+  record "$now" "$now" null skipped "previous run still going"
+  exit 0
+fi
+
+if [ -n "$unmetered" ] && ! verdict=$("$here/netcheck"); then
+  now=$(date +%s)
+  record "$now" "$now" null skipped "$verdict"
   exit 0
 fi
 
@@ -26,12 +48,37 @@ start=$(date +%s)
 printf '%s\t%s\n' "$$" "$start" >"$dir/running"
 trap 'rm -f "$dir/running"' EXIT
 
-"$@" >"$dir/current.log" 2>&1
+# Job control gives the command its own process group, so it can be stopped as a
+# whole (e.g. a script and the rsync it started).
+set -m
+"$@" >"$dir/current.log" 2>&1 &
+pid=$!
+
+stopped=""
+if [ -n "$unmetered" ]; then
+  ticks=0
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    ticks=$((ticks + 1))
+    if [ $((ticks % 20)) -eq 0 ] && ! verdict=$("$here/netcheck"); then
+      stopped="stopped: $verdict"
+      echo "[cronmon] $stopped" >>"$dir/current.log"
+      kill -TERM -- "-$pid" 2>/dev/null
+      break
+    fi
+  done
+fi
+wait "$pid" 2>/dev/null  # (silences bash's "Terminated" job notice)
 code=$?
 
 mv -f "$dir/current.log" "$dir/last.log"
-status=ok; [ "$code" -ne 0 ] && status=fail
-record "$start" "$(date +%s)" "$code" "$status"
+if [ -n "$stopped" ]; then
+  record "$start" "$(date +%s)" "$code" skipped "$stopped"
+  code=0
+else
+  status=ok; [ "$code" -ne 0 ] && status=fail
+  record "$start" "$(date +%s)" "$code" "$status"
+fi
 
 # Keep the history bounded.
 if [ "$(wc -l <"$dir/runs.jsonl")" -gt 2000 ]; then

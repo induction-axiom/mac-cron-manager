@@ -220,7 +220,7 @@ function cronLast(j) {
   if (!j.monitored) return '<span class="dim">not monitored</span>';
   if (!j.last) return '<span class="dim">never</span>';
   if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
-  if (j.last.status === "skipped") return `${ago(j.last.end)} <span class="dim">· skipped</span>`;
+  if (j.last.status === "skipped") return `${ago(j.last.end)} <span class="dim">· skipped${j.last.reason ? ` (${esc(j.last.reason)})` : ""}</span>`;
   return ago(j.last.end);
 }
 function cronTook(j) {
@@ -236,7 +236,7 @@ const cronRow = (j) => `
     <td>${esc(j.next)}</td>
     <td>${cronLast(j)}</td>
     <td>${cronTook(j)}</td>
-    <td><span class="hist">${j.history.map((h) => `<i class="${h}" title="${h}"></i>`).join("")}</span></td>
+    <td><span class="hist">${j.history.map((h) => `<i class="${h.status}" title="${esc(h.reason || h.status)}"></i>`).join("")}</span></td>
     <td><span class="actions">
       ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>` : ""}
       ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}

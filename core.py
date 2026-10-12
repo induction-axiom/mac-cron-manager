@@ -23,7 +23,7 @@ STATE = Path(os.environ.get("MCM_STATE", Path.home() / ".local/state/mac-cron-ma
 OFF = "#off# "
 HISTORY_LEN = 24
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*=")
-CRONMON_RE = re.compile(r"cronmon\s+(\S+)")
+CRONMON_RE = re.compile(r"cronmon\s+(?:--\S*\s+)*([^-\s]\S*)")  # skips options like --unmetered
 TCC_HINT = ("macOS blocked file access: add /usr/sbin/cron to System Settings → "
             "Privacy & Security → Full Disk Access.")
 

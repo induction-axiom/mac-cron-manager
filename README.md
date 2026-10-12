@@ -18,6 +18,22 @@ it in front of a job's command and it records start/end time, exit code and outp
 */30 * * * * ~/mac-cron-manager/cronmon photo-sync /path/to/run.sh
 ```
 
+## Skip phone hotspots
+
+Big transfers on a phone's data plan are rarely what you want. Add `--unmetered`:
+
+```
+*/30 * * * * ~/mac-cron-manager/cronmon --unmetered photo-sync /path/to/run.sh
+```
+
+The run is skipped on a phone hotspot, and if the Mac switches to one while the job is
+running, the whole job (including e.g. an rsync it started) is stopped within ~20 s.
+Both show up as a grey "skipped" with the reason. `netcheck` does the detection:
+iPhone Personal Hotspot (172.20.10.x), Android hotspots (DHCP marks them
+`ANDROID_METERED`), iPhone USB / Bluetooth tethering. macOS hides the Wi-Fi name from
+background jobs, so to go further and run only on networks you trust, trust them by
+their router: `netcheck --trust` while on the network (`netcheck --list` shows them).
+
 ## Install
 
 Requires macOS and Python 3.10+.
@@ -65,6 +81,7 @@ Disabled jobs stay in the crontab as `#off# <line>`.
 | `web.py` | The agent (Python standard library HTTP server). |
 | `static/index.html` | The dashboard page, served by the agent and published to GitHub Pages. |
 | `core.py` | Reads/writes the crontab and job state. |
+| `netcheck` | Tells whether the current network is a phone hotspot / untrusted (used by `cronmon --unmetered`). |
 | `launchd.py` | Scans `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`; checks code signatures. |
 | `tui.py` | Terminal dashboard ([Textual](https://textual.textualize.io/)). |
 
