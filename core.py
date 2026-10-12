@@ -22,7 +22,6 @@ STATE = Path(os.environ.get("MCM_STATE", Path.home() / ".local/state/mac-cron-ma
 OFF = "#off# "
 HISTORY_LEN = 24
 ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*=")
-CRONMON_RE = re.compile(r"cronmon\s+(?:--\S*\s+)*([^-\s]\S*)")  # skips options like --unmetered
 TCC_HINT = ("macOS blocked file access: add /usr/sbin/cron to System Settings → "
             "Privacy & Security → Full Disk Access.")
 
@@ -102,6 +101,21 @@ def split_line(raw: str):
     return (" ".join(parts[:n]), parts[n], enabled) if len(parts) == n + 1 else None
 
 
+def cronmon_name(command: str) -> str | None:
+    """The job name in `.../cronmon [--when CHECK] NAME COMMAND...`, or None if cronmon isn't used."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    for i, word in enumerate(words):
+        if Path(word).name == "cronmon":
+            rest = words[i + 1:]
+            while rest and rest[0].startswith("--"):
+                rest = rest[2:] if rest[0] == "--when" else rest[1:]
+            return rest[0] if rest else None
+    return None
+
+
 def parse_jobs(lines: list[str]) -> list[Job]:
     jobs = []
     for i, raw in enumerate(lines):
@@ -109,9 +123,8 @@ def parse_jobs(lines: list[str]) -> list[Job]:
         if not parsed:
             continue
         schedule, command, enabled = parsed
-        m = CRONMON_RE.search(command)
-        name = m.group(1) if m else Path(command.split()[0]).name
-        jobs.append(Job(i, raw, schedule, command, enabled, name, bool(m)))
+        name = cronmon_name(command)
+        jobs.append(Job(i, raw, schedule, command, enabled, name or Path(command.split()[0]).name, bool(name)))
     return jobs
 
 
@@ -180,7 +193,7 @@ def cron_up() -> bool:
 def until(when: datetime) -> str:
     """'in 25m · Sun 23:30'"""
     delta = (when - datetime.now()).total_seconds()
-    left = f"{int(delta // 60)}m" if delta < 3600 else f"{delta / 3600:.1f}h"
+    left = f"{int(delta // 60)}m" if delta < 3600 else f"{delta / 3600:.1f}h" if delta < 2 * 86400 else f"{delta / 86400:.1f}d"
     return f"in {left} · {when:%a %H:%M}"
 
 

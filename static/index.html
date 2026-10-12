@@ -81,21 +81,28 @@
   .dot { display: inline-block; width: 1.2em; text-align: center; }
   .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .hist { display: inline-flex; gap: 2px; vertical-align: middle; padding-top: 3px; }
+  .hist { display: inline-flex; align-items: flex-end; gap: 2px; vertical-align: middle; height: 17px; }
   .hist i { width: 5px; height: 14px; border-radius: 2px; background: var(--ok); opacity: .75; cursor: pointer; }
   .hist i.fail { background: var(--fail); opacity: .9; } .hist i.skipped { background: var(--faint); opacity: .4; }
+  .hist i.idle, .hist i.skipped { height: 4px; } .hist i.idle { opacity: .35; }
   .hist i:hover { opacity: 1; } .hist i.on { opacity: 1; box-shadow: 0 0 0 1.5px var(--accent); }
 
   .runs { display: flex; flex-direction: column; gap: 6px; }
   .runhead { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .runhead button { padding: 1px 9px; font-size: 12.5px; }
-  .strip { position: relative; display: flex; align-items: stretch; gap: 3px; height: 62px; padding: 20px 10px 6px;
+  .strip { position: relative; isolation: isolate; display: flex; align-items: stretch; gap: 3px; height: 62px; padding: 20px 10px 6px;
            overflow-x: auto; overflow-y: hidden; background: var(--panel); border-radius: 8px; cursor: pointer;
            user-select: none; -webkit-user-select: none; touch-action: pan-y; scrollbar-width: thin; }
   .strip i { flex: 0 0 9px; display: flex; align-items: flex-end; }
   .strip i::after { content: ""; width: 100%; height: var(--h); border-radius: 2px; background: var(--ok); opacity: .7; }
   .strip i.fail::after { background: var(--fail); opacity: .85; }
   .strip i.skipped::after { background: var(--faint); opacity: .4; }
+  .strip i.idle, .strip i.skipped { flex-basis: 5px; }   /* did nothing: a dot, not a bar */
+  .strip i.idle::after { opacity: .3; }
+  /* left of the dashed line, idle and skipped runs are no longer kept: shade that part */
+  .strip .cut { flex: 0 0 0; border-left: 1px dashed var(--faint); position: relative; margin: 0 6px; }
+  .strip .cut::before { content: ""; position: absolute; z-index: -1; right: 0; top: -20px; bottom: -6px; width: 100000px;
+                        background: color-mix(in srgb, var(--faint) 10%, transparent); }
   .strip i.running::after { opacity: 1; animation: pulse 1.2s ease-in-out infinite alternate; }
   @keyframes pulse { from { opacity: .35; } }
   .strip i:hover::after { opacity: 1; }
@@ -201,6 +208,7 @@ let filter = "all";
 let sel = { cron: null, launchd: null };
 let detailKey = null, logSig = null, follow = true;
 let runs = {}, runsSig = {};   // cron job name -> all recorded runs (/api/runs), and what they were fetched for
+let idleDays = 2;              // idle and skipped runs older than this are no longer kept (cronmon's MCM_KEEP_IDLE_DAYS)
 let selRun = {};               // cron job name -> start of the past run being viewed (absent: the latest)
 let logTimer = null, reveal = false;  // reveal: scroll the selected run into view once
 
@@ -252,6 +260,7 @@ function cronLast(j) {
   if (!j.last) return '<span class="dim">never</span>';
   if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
   if (j.last.status === "skipped") return `${ago(j.last.end)} <span class="dim">· skipped${j.last.reason ? ` (${esc(j.last.reason)})` : ""}</span>`;
+  if (j.last.status === "idle") return `${ago(j.last.end)} <span class="dim">· nothing to do</span>`;
   return ago(j.last.end);
 }
 function cronTook(j) {
@@ -268,7 +277,7 @@ const cronRow = (j) => `
     <td>${cronLast(j)}</td>
     <td>${cronTook(j)}</td>
     <td><span class="hist">${j.history.map((h) => `<i class="${h.status} ${selRun[j.name] === h.start ? "on" : ""}" data-run="${h.start}"
-      title="${esc(`${when(h.start)} · ${h.reason || h.status}`)}"></i>`).join("")}</span></td>
+      title="${esc(`${when(h.start)} · ${h.summary || h.reason || h.status}`)}"></i>`).join("")}</span></td>
     <td><span class="actions">
       <button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>
       <button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>
@@ -412,16 +421,18 @@ function showLog(text, files, empty = "(no log)") {
 async function loadCronLog(j) {
   if (!j.monitored) { showLog("", ""); return; }
   loadRuns(j);
-  const run = selRun[j.name];
+  const picked = selRun[j.name];
+  // Unless a run is picked (or one is live), show the last run that did something, not the latest idle one.
+  const real = runList(j).filter((x) => x.status === "ok" || x.status === "fail").at(-1);
+  const run = picked ?? (j.running_since ? undefined : real?.start);
   try {
     const data = await api(`/api/log?name=${encodeURIComponent(j.name)}` + (run ? `&run=${run}` : ""));
-    if (tab !== "cron" || j.name !== sel.cron || selRun[j.name] !== run) return;
+    if (tab !== "cron" || j.name !== sel.cron || selRun[j.name] !== picked) return;
     const r = run && runList(j).find((x) => x.start === run);
     const empty = r?.status === "skipped" ? `(skipped${r.reason ? `: ${r.reason}` : ""}: nothing ran, so there is no output)`
-      : run ? "(this run's output wasn't kept: output is saved per run from now on, for the last 100 runs)" : "(no log)";
+      : run ? "(this run's output wasn't kept: only the last 100 runs that did something keep theirs)" : "(no log)";
     $("#logfile").textContent = data.exists ? data.file : "";
-    const real = runList(j).filter((x) => x.status !== "skipped").at(-1);  // skipped runs leave last.log alone
-    $("#logstate").innerHTML = run ? `run of ${esc(when(run))}` : j.running_since ? '<span class="ok">● live</span>'
+    $("#logstate").innerHTML = picked ? `run of ${esc(when(picked))}` : j.running_since ? '<span class="ok">● live</span>'
       : real ? `last run that did something · ${esc(when(real.start))}` : "last run";
     showLog(data.exists ? data.text : "", data.file, empty);
   } catch { /* agent restarting; next poll retries */ }
@@ -437,14 +448,18 @@ function runList(j) {
 async function loadRuns(j) {
   const sig = `${j.last?.start}:${j.last?.end}:${j.running_since}`;
   if (runsSig[j.name] !== sig) {
-    try { runs[j.name] = (await api(`/api/runs?name=${encodeURIComponent(j.name)}`)).runs; } catch { return; }
+    try {
+      const data = await api(`/api/runs?name=${encodeURIComponent(j.name)}`);
+      runs[j.name] = data.runs;
+      idleDays = data.idle_days ?? idleDays;
+    } catch { return; }
     runsSig[j.name] = sig;
   }
   if (tab === "cron" && sel.cron === j.name) drawStrip(j);
 }
 
 function barHeight(r) {
-  if (r.status === "skipped") return 5;
+  if (r.status === "skipped" || r.status === "idle") return 4;
   if (r.status === "running") return 30;
   return Math.round(Math.min(30, 6 + 5 * Math.log2(1 + (r.end - r.start) / 5)));  // longer runs, taller bars
 }
@@ -456,19 +471,31 @@ function drawStrip(j) {
   const sig = `${list.length}:${list.at(-1)?.start}:${list.at(-1)?.status}`;
   if (strip.dataset.sig !== sig) {
     const atEnd = !strip.dataset.sig || strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 4;
-    let html = "", day = "";
-    for (const r of list) {
+    const cutoff = Date.now() / 1000 - idleDays * 86400;
+    let html = "", day = "", cut = false, x = 0, labelX = -1e9;  // x: rough position, to keep day labels apart
+    for (const [i, r] of list.entries()) {
+      if (!cut && r.start >= cutoff) {  // before this point, only the runs that did something are kept
+        cut = true;
+        if (i > 0) html += `<span class="cut" title="idle and skipped runs are kept for ${idleDays} days"></span>`;
+        x += 12;
+      }
       const d = new Date(r.start * 1000);
       if (d.toDateString() !== day) {
         day = d.toDateString();
-        html += `<span class="day"><em>${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</em></span>`;
+        const room = x - labelX >= 56;
+        if (room) labelX = x;
+        html += `<span class="day">${room ? `<em>${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</em>` : ""}</span>`;
+        x += 11;
       }
       html += `<i class="${r.status}" data-run="${r.start}" style="--h:${barHeight(r)}px"></i>`;
+      x += r.status === "idle" || r.status === "skipped" ? 8 : 12;
     }
+    const kept = list.length && list[0].start < cutoff;
     strip.innerHTML = html || '<span class="faint">no runs yet</span>';
     strip.dataset.sig = sig;
     if (atEnd) strip.scrollLeft = strip.scrollWidth;
-    $("#runcount").textContent = list.length ? `· ${list.length} runs` : "";
+    $("#runcount").textContent = !list.length ? "" : `· ${list.length} runs · idle and skipped runs are kept for ${idleDays} days`
+      + (kept ? ", so the shaded part before the dashed line shows only runs that did something" : "");
   }
   markRun(j);
 }
@@ -492,7 +519,8 @@ function markRun(j) {
   if (!r) { $("#runmeta").innerHTML = ""; return; }
   const pos = `<span class="faint">· run ${i + 1} of ${list.length}${j.name in selRun ? "" : " (latest)"}</span>`;
   const head = {
-    ok: `<span class="ok">● ok</span> · took ${dur(r.end - r.start)} · exit 0`,
+    ok: `<span class="ok">● ok</span>${r.summary ? ` · ${esc(r.summary)}` : ""} · took ${dur(r.end - r.start)} · exit 0`,
+    idle: `<span class="ok">● idle</span> · nothing to do · took ${dur(r.end - r.start)}`,
     fail: `<span class="fail">● failed</span> · took ${dur(r.end - r.start)} · exit ${r.exit}`,
     skipped: `<span class="faint">● skipped</span>${r.reason ? ` · ${esc(r.reason)}` : ""}`,
     running: `<span class="ok">● running</span> · ${dur(Date.now() / 1000 - r.start)} so far`,

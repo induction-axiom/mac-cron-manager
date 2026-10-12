@@ -32,23 +32,35 @@ random.seed(7)
 
 # ---------------------------------------------------------------- made-up cron jobs
 
-def make_runs(every: int, count: int, took: tuple[int, int], fail_at=(), skip_at=()) -> list[dict]:
+def make_runs(every: int, count: int, took: tuple[int, int], fail_at=(), skip_at=(), work_at=None) -> list[dict]:
+    """Runs ending now. With work_at, only those runs did something and the rest were idle; like cronmon,
+    idle and skipped runs older than two days are left out."""
     runs = []
     for i in range(count):
         start = NOW - (count - i) * every + random.randint(0, 3)
         if i in skip_at:
-            runs.append({"start": start, "end": start, "exit": None, "status": "skipped", "reason": "iPhone Personal Hotspot"})
+            run = {"start": start, "end": start, "exit": None, "status": "skipped", "reason": "iPhone Personal Hotspot"}
+        elif i in fail_at:
+            run = {"start": start, "end": start + random.randint(*took), "exit": 1, "status": "fail"}
+        elif work_at is not None and i not in work_at:
+            run = {"start": start, "end": start + random.randint(1, 3), "exit": 0, "status": "idle"}
+        else:
+            run = {"start": start, "end": start + random.randint(*took), "exit": 0, "status": "ok"}
+            if work_at is not None:
+                n = random.randint(3, 60)
+                run["summary"] = f"uploaded {n} file(s), {n * random.uniform(8, 30):.1f} MB" + (
+                    f"; deleted {random.randint(5, 80)}" if random.random() < .5 else "")
+        if run["status"] in ("idle", "skipped") and start < NOW - 2 * 86400:
             continue
-        end = start + random.randint(*took)
-        status = "fail" if i in fail_at else "ok"
-        runs.append({"start": start, "end": end, "exit": 1 if status == "fail" else 0, "status": status})
+        runs.append(run)
     return runs
 
 
 CRON = [
     ("photo-backup", "*/30 * * * *", "Every 30 minutes",
-     f"{HOME}/mac-cron-manager/cronmon --unmetered photo-backup {HOME}/jobs/photo-backup.sh",
-     make_runs(1800, 46, (4, 190), fail_at={12}, skip_at={20, 21, 22})),
+     f"{HOME}/mac-cron-manager/cronmon photo-backup {HOME}/jobs/photo-backup.sh",
+     make_runs(1800, 190, (20, 190), fail_at={101}, skip_at={150, 151, 152},
+               work_at={3, 11, 19, 27, 40, 52, 66, 79, 88, 97, 105, 112, 121, 130, 139, 147, 156, 165, 173, 186})),
     ("notes-export", "0 * * * *", "At 0 minutes past the hour",
      f"{HOME}/mac-cron-manager/cronmon notes-export {HOME}/jobs/notes-export.sh",
      make_runs(3600, 24, (2, 9), fail_at={23})),
@@ -61,9 +73,8 @@ CRON = [
 LOGS = {
     "photo-backup": """[{t}] 1,284 media files in {home}/Pictures
 [{t}] syncing with backup@nas.local:/volume1/photos
-[{t}] uploaded 37 files, 412.6 MB
-[{t}] verified 37 files on the NAS
-[{t}] cleanup: 52 verified files older than 30 days can be removed""",
+[{t}] {summary}
+[{t}] done""",
     "notes-export": """[{t}] exporting 312 notes to {home}/Documents/notes-export
 [{t}] error: {home}/Documents/notes-export: Operation timed out
 [{t}] export failed after 1 attempt""",
@@ -77,7 +88,7 @@ def cron_json(i, name, schedule, desc, command, runs):
         "command": command, "enabled": True, "monitored": monitored, "running_since": None,
         "next": core.next_run(core.Job(i, "", schedule, command, True, name, monitored)),
         "last": runs[-1] if runs else None,
-        "history": [{"start": r["start"], "status": r["status"], "reason": r.get("reason", "")} for r in runs[-24:]],
+        "history": [{k: r.get(k) for k in ("start", "status", "reason", "summary")} for r in runs[-24:]],
         "warning": "",
     }
 
@@ -85,10 +96,12 @@ def cron_json(i, name, schedule, desc, command, runs):
 def log_for(name: str, run: str) -> dict:
     runs = next(r for n, *_, r in CRON if n == name)
     start = int(run) if run.isdigit() else next((r["start"] for r in reversed(runs) if r["status"] != "skipped"), NOW)
-    if any(r["start"] == start and r["status"] == "skipped" for r in runs):
+    r = next((r for r in runs if r["start"] == start), {})
+    if r.get("status") == "skipped":
         return {"file": "", "text": "", "exists": False}
     t = time.strftime("%H:%M:%S", time.localtime(start))
-    text = LOGS.get(name, "[{t}] done").format(t=t, home=HOME)
+    summary = r.get("summary") or ("nothing new to upload or delete" if r.get("status") == "idle" else "uploaded 37 files, 412.6 MB")
+    text = LOGS.get(name, "[{t}] done").format(t=t, home=HOME, summary=summary)
     return {"file": f"{STATE}/{name}/logs/{start}.log", "text": text, "exists": True}
 
 
@@ -153,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
                                "jobs": [cron_json(i, *job) for i, job in enumerate(CRON)]})
         if url.path == "/api/runs":
             runs = next(r for n, *_, r in CRON if n == q["name"])
-            return self.reply({"runs": [{**r, "log": r["status"] != "skipped"} for r in runs]})
+            return self.reply({"runs": [{**r, "log": r["status"] != "skipped"} for r in runs], "idle_days": 2})
         if url.path == "/api/log":
             return self.reply(log_for(q["name"], q.get("run", "")))
         if url.path == "/api/launchd":

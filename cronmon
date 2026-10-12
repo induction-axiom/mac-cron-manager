@@ -1,20 +1,25 @@
 #!/bin/bash
-# cronmon [--unmetered] NAME COMMAND [ARGS...]
+# cronmon [--when CHECK] NAME COMMAND [ARGS...]
 #
 # Run COMMAND and record the result for mac-cron-manager: start/end time, exit code and
 # the command's output. Use it as the command of a crontab line, e.g.
 #   */30 * * * * /path/to/mac-cron-manager/cronmon photo-sync /path/to/run.sh
 # For shell syntax (pipes, redirects) wrap it: cronmon NAME /bin/sh -c '...'
 #
-# --unmetered  only run on a fine network (see netcheck): skip the run on a phone
-#              hotspot, and stop it if the Mac switches to one while it's running.
+# --when CHECK  run only while the shell command CHECK succeeds: if it fails before the
+#               start, the run is skipped with CHECK's last line of output as the reason;
+#               it's checked again every 20 s and stops the run when it starts failing.
+#
+# A job may write one line to the file named by $CRONMON_RESULT: "idle" when it
+# found nothing to do, or a short summary of what it did ("uploaded 3 files").
+# Idle and skipped runs are kept for MCM_KEEP_IDLE_DAYS (2) days; runs that did
+# something are kept, with the output of the last MCM_KEEP_LOGS (100) of them.
 set -u
 
-here="$(cd "$(dirname "$0")" && pwd)"
-unmetered=""
+when=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --unmetered) unmetered=1; shift ;;
+    --when) when="${2:?--when needs a command}"; shift 2 ;;
     --) shift; break ;;
     -*) echo "cronmon: unknown option $1" >&2; exit 2 ;;
     *) break ;;
@@ -25,10 +30,35 @@ name="$1"; shift
 dir="${MCM_STATE:-$HOME/.local/state/mac-cron-manager}/jobs/$name"
 mkdir -p "$dir"
 
-record() {  # start end exit status [reason]
-  local reason=""
-  [ -n "${5:-}" ] && reason=$(printf ',"reason":"%s"' "${5//\"/\'}")
-  printf '{"start":%s,"end":%s,"exit":%s,"status":"%s"%s}\n' "$1" "$2" "$3" "$4" "$reason" >>"$dir/runs.jsonl"
+json_str() {  # escape a one-line string for JSON
+  local s="${1//\\/\\\\}"
+  printf '%s' "${s//\"/\\\"}"
+}
+
+record() {  # start end exit status [reason] [summary]
+  local extra=""
+  [ -n "${5:-}" ] && extra="$extra,\"reason\":\"$(json_str "$5")\""
+  [ -n "${6:-}" ] && extra="$extra,\"summary\":\"$(json_str "$6")\""
+  printf '{"start":%s,"end":%s,"exit":%s,"status":"%s"%s}\n' "$1" "$2" "$3" "$4" "$extra" >>"$dir/runs.jsonl"
+}
+
+check() {  # run the --when command; on failure, leave its last line of output in $verdict
+  local out
+  out=$(/bin/sh -c "$when" 2>&1) && return 0
+  verdict=$(printf '%s\n' "${out:-check failed}" | tail -n 1 | tr -d '\000-\037')
+  return 1
+}
+
+compact() {  # drop old idle/skipped runs and the logs nobody will look for
+  local cutoff=$(( $(date +%s) - ${MCM_KEEP_IDLE_DAYS:-2} * 86400 ))
+  awk -v cutoff="$cutoff" 'match($0, /"start":[0-9]+/) { start = substr($0, RSTART + 8, RLENGTH - 8) + 0 }
+    /"status":"(idle|skipped)"/ && start < cutoff { next } { print }' "$dir/runs.jsonl" |
+    tail -n 2000 >"$dir/runs.tmp" && mv -f "$dir/runs.tmp" "$dir/runs.jsonl"
+  { grep '"status":"idle"' "$dir/runs.jsonl"
+    grep -E '"status":"(ok|fail)"' "$dir/runs.jsonl" | tail -n "${MCM_KEEP_LOGS:-100}"
+  } | sed -E 's/^\{"start":([0-9]+).*/\1.log/' >"$dir/logs.keep"
+  ls "$dir/logs" | grep -vxF -f "$dir/logs.keep" | while read -r f; do rm -f "$dir/logs/$f"; done
+  rm -f "$dir/logs.keep"
 }
 
 # Don't pile up runs: skip if the previous one is still going.
@@ -38,7 +68,11 @@ if [ -f "$dir/running" ] && kill -0 "$(cut -f1 "$dir/running")" 2>/dev/null; the
   exit 0
 fi
 
-if [ -n "$unmetered" ] && ! verdict=$("$here/netcheck"); then
+# Claim the job before the check (which may wait), so a catch-up run on wake doesn't start a second copy.
+printf '%s\t%s\n' "$$" "$(date +%s)" >"$dir/running"
+trap 'rm -f "$dir/running"' EXIT
+
+if [ -n "$when" ] && ! check; then
   now=$(date +%s)
   record "$now" "$now" null skipped "$verdict"
   exit 0
@@ -46,7 +80,8 @@ fi
 
 start=$(date +%s)
 printf '%s\t%s\n' "$$" "$start" >"$dir/running"
-trap 'rm -f "$dir/running"' EXIT
+export CRONMON_RESULT="$dir/result"
+rm -f "$CRONMON_RESULT"
 
 # Job control gives the command its own process group, so it can be stopped as a
 # whole (e.g. a script and the rsync it started).
@@ -55,12 +90,12 @@ set -m
 pid=$!
 
 stopped=""
-if [ -n "$unmetered" ]; then
+if [ -n "$when" ]; then
   ticks=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 1
     ticks=$((ticks + 1))
-    if [ $((ticks % 20)) -eq 0 ] && ! verdict=$("$here/netcheck"); then
+    if [ $((ticks % 20)) -eq 0 ] && ! check; then
       stopped="stopped: $verdict"
       echo "[cronmon] $stopped" >>"$dir/current.log"
       kill -TERM -- "-$pid" 2>/dev/null
@@ -75,17 +110,20 @@ mv -f "$dir/current.log" "$dir/last.log"
 # Keep each run's output (named by its start time) so past runs can be inspected.
 mkdir -p "$dir/logs"
 cp -f "$dir/last.log" "$dir/logs/$start.log"
-ls -1t "$dir/logs" | tail -n +"$(( ${MCM_KEEP_LOGS:-100} + 1 ))" | while read -r f; do rm -f "$dir/logs/$f"; done
+outcome=$(head -n 1 "$CRONMON_RESULT" 2>/dev/null | tr -d '\000-\037' | cut -c 1-200)
+rm -f "$CRONMON_RESULT"
 if [ -n "$stopped" ]; then
   record "$start" "$(date +%s)" "$code" skipped "$stopped"
   code=0
 else
   status=ok; [ "$code" -ne 0 ] && status=fail
-  record "$start" "$(date +%s)" "$code" "$status"
+  summary="$outcome"
+  if [ "$outcome" = idle ]; then
+    summary=""
+    [ "$status" = ok ] && status=idle
+  fi
+  record "$start" "$(date +%s)" "$code" "$status" "" "$summary"
 fi
 
-# Keep the history bounded.
-if [ "$(wc -l <"$dir/runs.jsonl")" -gt 2000 ]; then
-  tail -n 1000 "$dir/runs.jsonl" >"$dir/runs.tmp" && mv -f "$dir/runs.tmp" "$dir/runs.jsonl"
-fi
+compact
 exit "$code"

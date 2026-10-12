@@ -44,14 +44,25 @@ command yourself:
 */30 * * * * ~/mac-cron-manager/cronmon photo-backup ~/jobs/photo-backup.sh
 ```
 
-Add `--unmetered` after `cronmon` to skip a job while your Mac is on a phone
-hotspot.
+A job can also write `idle` to the file named by `$CRONMON_RESULT` when there
+was nothing to do, or a one-line summary of what it did. Idle runs show as small
+dots and are kept for two days, so the runs that did something stay easy to find.
+
+To run a job only while some condition holds, add `--when` and a shell command.
+For example, only on power:
+
+```
+*/30 * * * * ~/mac-cron-manager/cronmon --when "pmset -g ps | grep -q 'AC Power'" photo-backup ~/jobs/photo-backup.sh
+```
+
+The run is skipped when the command fails, and stopped if it starts failing
+while the job runs.
 
 A few things about cron on macOS:
 
 - Jobs that read `~/Pictures`, `~/Documents` or `~/Desktop` need **Full Disk
   Access** for `/usr/sbin/cron` (System Settings → Privacy & Security).
-- Jobs don't run while your Mac is asleep, and aren't caught up afterwards.
+- Jobs don't run while your Mac is asleep.
 
 To update, `git pull` and run `install.sh` again. To remove it, run
 `install.sh --uninstall`.

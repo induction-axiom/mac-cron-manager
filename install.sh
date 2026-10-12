@@ -21,7 +21,7 @@ fi
 
 python3 -m venv "$DIR/.venv"
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
-chmod +x "$DIR/cronmon" "$DIR/netcheck"
+chmod +x "$DIR/cronmon"
 mkdir -p "$STATE" "$(dirname "$PLIST")"
 
 cat >"$PLIST" <<PLIST

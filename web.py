@@ -29,6 +29,7 @@ LOCAL_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
 HOSTED_ORIGINS = {o.strip().rstrip("/") for o in
                   os.environ.get("MCM_HOSTED_ORIGINS", "https://induction-axiom.github.io").split(",") if o.strip()}
 INDEX = core.HERE / "static" / "index.html"
+KEEP_IDLE_DAYS = int(os.environ.get("MCM_KEEP_IDLE_DAYS", "2"))  # cronmon's default too
 
 
 def job_json(job: core.Job) -> dict:
@@ -37,7 +38,7 @@ def job_json(job: core.Job) -> dict:
         "schedule": job.schedule, "desc": core.describe(job.schedule), "command": job.command,
         "enabled": job.enabled, "monitored": job.monitored, "running_since": job.running_since,
         "next": core.next_run(job), "last": job.last,
-        "history": [{"start": r["start"], "status": r["status"], "reason": r.get("reason", "")} for r in job.history],
+        "history": [{k: r.get(k) for k in ("start", "status", "reason", "summary")} for r in job.history],
         "warning": job.warning(),
     }
 
@@ -112,7 +113,8 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 return self.reply(404, {"error": "no such job"})
             if path == "/api/runs":
-                return self.reply(200, {"runs": [{**r, "log": job.run_log(r["start"]).exists()} for r in job.runs]})
+                return self.reply(200, {"runs": [{**r, "log": job.run_log(r["start"]).exists()} for r in job.runs],
+                                        "idle_days": KEEP_IDLE_DAYS})
             run = self.query("run")
             f = job.run_log(int(run)) if run.isdigit() else job.log_file
             text = "\n".join(f.read_text(errors="replace").splitlines()[-500:]) if f.exists() else ""
