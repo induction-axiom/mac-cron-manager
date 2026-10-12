@@ -13,6 +13,7 @@
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); }
   body { display: flex; flex-direction: column; }
   button { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--line);
@@ -287,6 +288,7 @@ function showSetup(on) {
   $("#setup").hidden = !on;
   document.querySelector("main").hidden = on;
   document.querySelector("footer").hidden = on;
+  if (on) { $("#edit-btn").hidden = true; $("#mode").hidden = true; }
 }
 
 async function refresh() {
