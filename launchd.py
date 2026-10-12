@@ -136,11 +136,11 @@ def scan() -> list[dict]:
                    "label": path.stem, "readable": True}
             try:
                 with open(path, "rb") as f:
-                    data = plistlib.load(f)
+                    data = plistlib.loads(f.read().lstrip())  # some vendors ship a leading newline; launchd accepts it
             except PermissionError:
                 job.update(readable=False, program=None, developer="?", trigger="(plist not readable as your user)",
                            next=None, next_ts=None, pid=None, last_exit=None, loaded=None,
-                           disabled=disabled[kind].get(path.stem, False), warning="", actions=[], logs=[])
+                           disabled=disabled[kind].get(path.stem, False), warning="", note="", actions=[], logs=[])
                 jobs.append(job)
                 continue
             except Exception as e:
@@ -164,9 +164,9 @@ def scan() -> list[dict]:
             if program == "/usr/bin/open":
                 target = next((a for a in args[1:] if a.endswith(".app")), program)
             developer = signer(target) if program else "?"
-            warning = job.get("warning", "")
+            warning, note = job.get("warning", ""), ""
             if not data or data.keys() <= {"Label"}:
-                warning = "empty plist: this job does nothing (its app has switched it off)"
+                note = "empty plist: this job does nothing (its app has switched it off)"
             elif developer == "missing" and program:
                 warning = f"program not found ({target}): probably left over from an uninstalled app"
             elif last_exit not in (None, 0) and not pid:
@@ -184,7 +184,7 @@ def scan() -> list[dict]:
                 "developer": "you" if developer == "unsigned" and scope == "user" else developer,
                 "trigger": trigger, "next": next_label, "next_ts": next_ts,
                 "pid": pid, "last_exit": last_exit, "loaded": is_loaded, "disabled": is_disabled,
-                "warning": warning, "actions": actions, "logs": logs,
+                "warning": warning, "note": note, "actions": actions, "logs": logs,
             })
     return jobs
 
