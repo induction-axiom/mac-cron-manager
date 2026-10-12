@@ -1,4 +1,0 @@
-#!/bin/bash
-# Launcher: run mac-cron-manager from its own virtualenv.
-DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-exec "$DIR/.venv/bin/python" "$DIR/tui.py" "$@"

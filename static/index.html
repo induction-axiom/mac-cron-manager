@@ -42,7 +42,6 @@
            white-space: nowrap; overflow-x: auto; }
   .host { background: var(--chip); font-weight: 600; padding: 2px 10px; border-radius: 6px; }
   .spacer { flex: 1; }
-  .mode { border: 1px dashed var(--line); border-radius: 6px; padding: 1px 8px; color: var(--dim); font-size: 13px; }
   #clock { font-variant-numeric: tabular-nums; }
 
   nav { display: flex; gap: 6px; align-items: flex-end; padding: 0 20px; border-bottom: 1px solid var(--line); }
@@ -134,11 +133,6 @@
   #toast div.error { background: var(--fail); color: #fff; }
   .empty { padding: 28px 20px; color: var(--dim); }
 
-  #setup { padding: 36px 28px; max-width: 760px; line-height: 1.65; }
-  #setup h2 { font-size: 17px; margin: 0 0 12px; }
-  #setup ol { padding-left: 20px; } #setup li { margin: 12px 0; }
-  #setup code { display: block; background: var(--code); border: 1px solid var(--line); border-radius: 6px;
-                padding: 9px 12px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -147,25 +141,9 @@
   <span>cron <span id="cron">…</span></span>
   <span id="summary" class="dim"></span>
   <span class="spacer"></span>
-  <span id="mode" class="mode" hidden></span>
   <span id="clock" class="dim"></span>
-  <button id="edit-btn" title="e" hidden>edit crontab</button>
+  <button id="edit-btn" title="e">edit crontab</button>
 </header>
-
-<section id="setup" hidden>
-  <h2>No local agent found at <span id="agent-url"></span> <span class="dim">· retrying…</span></h2>
-  <p class="dim">This page is only the interface. A small agent on your Mac reads the crontab and launchd jobs;
-     the page talks to it over 127.0.0.1 and nothing leaves your machine.</p>
-  <ol>
-    <li>Install the agent (macOS, Python 3.10+). It starts at login from then on:
-      <code>git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager &amp;&amp; ~/mac-cron-manager/install.sh</code></li>
-    <li>When Chrome asks whether this site may access apps and services on your device, choose <b>Allow</b>.</li>
-    <li>Already installed but stopped? Restart it:
-      <code>launchctl kickstart -k gui/$(id -u)/local.mac-cron-manager</code></li>
-  </ol>
-  <p class="dim">Prefer not to use a hosted page? Open <a href="http://127.0.0.1:7878">http://127.0.0.1:7878</a>
-     once the agent runs: it serves this same dashboard, with editing enabled.</p>
-</section>
 
 <nav id="tabs">
   <button data-tab="cron" class="on">cron <span id="n-cron" class="dim"></span></button>
@@ -201,11 +179,9 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-// Served by the agent itself (same origin), or hosted elsewhere and talking to the agent on 127.0.0.1.
-const LOCAL = location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(location.hostname);
-const AGENT = LOCAL ? "" : (new URLSearchParams(location.search).get("agent") || "http://127.0.0.1:7878");
+// Served by the agent on 127.0.0.1, which answers the /api calls below.
 
-let state = { jobs: [], allowed: [] };   // /api/state: host, cron jobs, what this page may do
+let state = { jobs: [] };                // /api/state: host, whether cron runs, cron jobs
 let ld = null;                           // /api/launchd jobs, null until first load
 let tab = "cron";
 try { tab = localStorage.getItem("mcm.tab") || "cron"; } catch { /* storage unavailable */ }
@@ -216,7 +192,6 @@ let runs = {}, runsSig = {};   // cron job name -> all recorded runs (/api/runs)
 let selRun = {};               // cron job name -> start of the past run being viewed (absent: the latest)
 let logTimer = null, reveal = false;  // reveal: scroll the selected run into view once
 
-const can = (a) => (state.allowed || []).includes(a);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function ago(ts) {
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
@@ -238,7 +213,7 @@ async function api(path, body) {
   const opts = body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json", "X-MCM": "1" }, body: JSON.stringify(body),
   };
-  const res = await fetch(AGENT + path, opts);
+  const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -283,9 +258,9 @@ const cronRow = (j) => `
     <td><span class="hist">${j.history.map((h) => `<i class="${h.status} ${selRun[j.name] === h.start ? "on" : ""}" data-run="${h.start}"
       title="${esc(`${when(h.start)} · ${h.reason || h.status}`)}"></i>`).join("")}</span></td>
     <td><span class="actions">
-      ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>` : ""}
-      ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}
-      ${j.monitored || !can("wrap") ? "" : '<button data-act="wrap" title="w">monitor</button>'}
+      <button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>
+      <button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>
+      ${j.monitored ? "" : '<button data-act="wrap" title="w">monitor</button>'}
     </span></td>
   </tr>`;
 
@@ -318,8 +293,8 @@ const ldRow = (j) => `
     <td>${esc(j.next || "")}</td>
     <td>${ldState(j)}</td>
     <td><span class="actions">
-      ${j.actions.includes("run") && can("launchd/run") ? '<button data-act="run" title="r">run</button>' : ""}
-      ${j.actions.includes("toggle") && can("launchd/toggle") ? `<button data-act="toggle" title="space">${j.disabled ? "enable" : "disable"}</button>` : ""}
+      ${j.actions.includes("run") ? '<button data-act="run" title="r">run</button>' : ""}
+      ${j.actions.includes("toggle") ? `<button data-act="toggle" title="space">${j.disabled ? "enable" : "disable"}</button>` : ""}
     </span></td>
   </tr>`;
 
@@ -346,9 +321,6 @@ function render() {
   document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? "◐ mac-cron-manager" : "mac-cron-manager";
   setFavicon(failing ? "#b93a32" : running ? "#2f7a4d" : "#8a8a8a");
 
-  $("#mode").hidden = state.caller !== "remote";
-  $("#mode").innerHTML = `hosted · limited · <a href="${state.local_url}">open locally</a> to edit`;
-  $("#edit-btn").hidden = !can("crontab");
   $("#n-cron").textContent = jobs.length;
   $("#n-launchd").innerHTML = ld ? `${ld.length}${issues ? ` <span class="fail">· ${issues} !</span>` : ""}` : "";
   document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
@@ -360,7 +332,7 @@ function render() {
   $("#thead").innerHTML = tab === "cron" ? CRON_HEAD : LD_HEAD;
   $("#rows").innerHTML = list.map(tab === "cron" ? cronRow : ldRow).join("");
   $("#empty").hidden = list.length > 0;
-  $("#empty").innerHTML = tab === "cron" ? "No cron jobs yet." + (can("crontab") ? " Press <kbd>e</kbd> to edit the crontab." : "")
+  $("#empty").innerHTML = tab === "cron" ? "No cron jobs yet. Press <kbd>e</kbd> to edit the crontab."
     : ld ? "Nothing matches this filter." : "Loading launchd jobs…";
   renderDetail();
 }
@@ -393,7 +365,7 @@ function cronDetail(j) {
       <div class="strip" id="strip"></div>
       <div class="runmeta" id="runmeta"></div>
     </div>` : ""}
-    ${j.monitored ? "" : `<div class="banner hint">Not monitored: ${can("wrap") ? "press <kbd>w</kbd> to wrap" : "open the local page to wrap"} it in cronmon to get status + logs.</div>`}
+    ${j.monitored ? "" : `<div class="banner hint">Not monitored: press <kbd>w</kbd> to wrap it in cronmon to get status + logs.</div>`}
     <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
     <pre class="log" id="log"></pre>`;
 }
@@ -410,7 +382,6 @@ function ldDetailHtml(j) {
       <span>runs</span><span id="ld-runs">…</span>
     </div>
     ${j.kind === "daemon" ? '<div class="banner hint">System daemon: runs as root, so it can only be viewed here.</div>' : ""}
-    ${j.actions.length && !can("launchd/toggle") ? '<div class="banner hint">launchd jobs can only be changed from the local page.</div>' : ""}
     <div class="logbar"><span id="logfile"></span><span></span></div>
     <pre class="log" id="log"></pre>`;
 }
@@ -569,31 +540,19 @@ async function loadLdDetail(j) {
 
 // ---------------------------------------------------------------- data
 
-function showSetup(on) {
-  $("#setup").hidden = !on;
-  for (const el of ["main", "footer", "nav"]) document.querySelector(el).hidden = on;
-  if (on) { $("#edit-btn").hidden = true; $("#mode").hidden = true; }
-}
-
 async function refresh() {
   try {
     state = await api("/api/state");
-    showSetup(false);
     render();
-  } catch {
-    state = { jobs: [], allowed: [] };
-    showSetup(true);
-    $("#agent-url").textContent = AGENT || location.origin;
-    $("#host").textContent = "no agent";
-    $("#cron").innerHTML = '<span class="fail">unreachable</span>';
-    $("#summary").textContent = "";
-    document.title = "mac-cron-manager · no agent";
+  } catch {  // keep showing the last state until the agent is back (launchd restarts it)
+    $("#summary").innerHTML = '<span class="fail">agent not responding · retrying…</span>';
+    document.title = "mac-cron-manager · agent not responding";
     setFavicon("#8a8a8a");
   }
 }
 
 async function refreshLaunchd() {
-  try { ld = (await api("/api/launchd")).jobs; render(); } catch { /* agent down: refresh() shows setup */ }
+  try { ld = (await api("/api/launchd")).jobs; render(); } catch { /* agent down: refresh() says so */ }
 }
 
 async function act(action, key) {
@@ -606,7 +565,7 @@ async function act(action, key) {
       refresh();
     } else {
       const j = (ld || []).find((x) => x.id === key);
-      if (!j || !j.actions.includes(action) || !can(`launchd/${action}`)) return;
+      if (!j || !j.actions.includes(action)) return;
       if (action === "toggle" && !j.disabled &&
           !confirm(`Disable ${j.label} for your user?\nIt stops now and won't start again (even after a reboot) until you enable it.`)) return;
       await api(`/api/launchd/${action}`, { id: j.id });
@@ -619,7 +578,6 @@ async function act(action, key) {
 // ---------------------------------------------------------------- editor
 
 async function openEditor() {
-  if (!can("crontab")) return;
   const { text } = await api("/api/crontab");
   $("#crontab").value = text;
   $("#edit-err").textContent = "";
@@ -687,8 +645,8 @@ document.addEventListener("keydown", (e) => {
     case "Escape": if (tab === "cron" && j && j.name in selRun) selectRun(j.name, null); break;
     case "r": act("run", sel[tab]); break;
     case " ": e.preventDefault(); act("toggle", sel[tab]); break;
-    case "w": if (tab === "cron" && can("wrap") && j && !j.monitored) act("wrap", sel[tab]); break;
-    case "e": if (can("crontab")) { e.preventDefault(); openEditor(); } break;
+    case "w": if (tab === "cron" && j && !j.monitored) act("wrap", sel[tab]); break;
+    case "e": e.preventDefault(); openEditor(); break;
   }
 });
 

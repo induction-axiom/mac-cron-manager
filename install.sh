@@ -21,7 +21,7 @@ fi
 
 python3 -m venv "$DIR/.venv"
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
-chmod +x "$DIR/cronmon" "$DIR/tui"
+chmod +x "$DIR/cronmon" "$DIR/netcheck"
 mkdir -p "$STATE" "$(dirname "$PLIST")"
 
 cat >"$PLIST" <<PLIST
@@ -51,5 +51,4 @@ PLIST
 
 launchctl bootstrap "$DOMAIN" "$PLIST"
 echo "mac-cron-manager is running: http://127.0.0.1:$PORT"
-echo "terminal version:     $DIR/tui"
 echo "monitor a job:        * * * * * $DIR/cronmon <name> <command...>"

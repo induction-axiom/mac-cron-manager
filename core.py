@@ -1,4 +1,4 @@
-"""Shared crontab + cronmon state logic for the mac-cron-manager TUI and web dashboard.
+"""Crontab + cronmon state for the mac-cron-manager agent (web.py).
 
 Disabled jobs stay in the crontab as `#off# <line>` so they can be switched back
 on. Every change to the crontab is preceded by a backup in <STATE>/backups/.
@@ -9,7 +9,6 @@ import os
 import re
 import shlex
 import subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +44,7 @@ class Job:
         return STATE / "jobs" / self.name
 
     @property
-    def last(self):
+    def last(self) -> dict | None:
         return self.runs[-1] if self.runs else None
 
     @property
@@ -56,9 +55,9 @@ class Job:
         """Output of the run that started at `start` (kept for the last MCM_KEEP_LOGS runs)."""
         return self.dir / "logs" / f"{int(start)}.log"
 
-    def all_runs(self) -> list:
-        f = self.dir / "runs.jsonl"
-        return [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+    @property
+    def history(self) -> list:
+        return self.runs[-HISTORY_LEN:]
 
     def warning(self) -> str:
         f = self.log_file
@@ -82,18 +81,25 @@ def write_crontab(lines: list[str]) -> None:
     subprocess.run(["crontab", "-"], input="\n".join(lines).rstrip("\n") + "\n", text=True, check=True)
 
 
+def unwrap(raw: str) -> tuple[str, bool]:
+    """(line without the #off# marker, enabled)."""
+    line = raw.strip()
+    return (line[len(OFF):].strip(), False) if line.startswith(OFF) else (line, True)
+
+
+def is_job(line: str) -> bool:
+    """False for blank lines, comments and VAR=value lines."""
+    return bool(line) and not line.startswith("#") and not ENV_RE.match(line)
+
+
 def split_line(raw: str):
-    """Return (schedule, command, enabled) for a job line, or None for anything else."""
-    line, enabled = raw.strip(), True
-    if line.startswith(OFF):
-        line, enabled = line[len(OFF):].strip(), False
-    if not line or line.startswith("#") or ENV_RE.match(line):
+    """Return (schedule, command, enabled) for a well-formed job line, or None for anything else."""
+    line, enabled = unwrap(raw)
+    if not is_job(line):
         return None
-    if line.startswith("@"):
-        parts = line.split(None, 1)
-        return (parts[0], parts[1], enabled) if len(parts) == 2 else None
-    parts = line.split(None, 5)
-    return (" ".join(parts[:5]), parts[5], enabled) if len(parts) == 6 else None
+    n = 1 if line.startswith("@") else 5  # @reboot / @daily … or five time fields
+    parts = line.split(None, n)
+    return (" ".join(parts[:n]), parts[n], enabled) if len(parts) == n + 1 else None
 
 
 def parse_jobs(lines: list[str]) -> list[Job]:
@@ -113,12 +119,9 @@ def validate(lines: list[str]) -> list[str]:
     """Return a list of problems (empty if the crontab looks fine)."""
     errors = []
     for i, raw in enumerate(lines, 1):
-        line = raw.strip()
-        if line.startswith(OFF):
-            line = line[len(OFF):].strip()
-        if not line or line.startswith("#") or ENV_RE.match(line):
+        if not is_job(unwrap(raw)[0]):
             continue
-        parsed = split_line(line)
+        parsed = split_line(raw)
         if not parsed:
             errors.append(f"line {i}: expected 5 schedule fields and a command")
         elif parsed[0] != "@reboot" and not croniter.is_valid(parsed[0]):
@@ -131,7 +134,7 @@ def load_jobs() -> list[Job]:
     for job in jobs:
         runs_file = job.dir / "runs.jsonl"
         if runs_file.exists():
-            job.runs = [json.loads(l) for l in runs_file.read_text().splitlines()[-HISTORY_LEN:] if l.strip()]
+            job.runs = [json.loads(l) for l in runs_file.read_text().splitlines() if l.strip()]
         running = job.dir / "running"
         if running.exists():
             try:
@@ -147,8 +150,8 @@ def load_jobs() -> list[Job]:
 
 def toggle(lines: list[str], job: Job) -> list[str]:
     lines = list(lines)
-    line = lines[job.line_no].strip()
-    lines[job.line_no] = line[len(OFF):] if line.startswith(OFF) else OFF + line
+    line, enabled = unwrap(lines[job.line_no])
+    lines[job.line_no] = OFF + line if enabled else line
     return lines
 
 
@@ -174,31 +177,22 @@ def cron_up() -> bool:
 
 # ---------------------------------------------------------------- formatting
 
-def ago(ts: float) -> str:
-    s = int(time.time() - ts)
-    for unit, n in (("d", 86400), ("h", 3600), ("m", 60)):
-        if s >= n:
-            return f"{s // n}{unit} ago"
-    return f"{s}s ago"
+def until(when: datetime) -> str:
+    """'in 25m · Sun 23:30'"""
+    delta = (when - datetime.now()).total_seconds()
+    left = f"{int(delta // 60)}m" if delta < 3600 else f"{delta / 3600:.1f}h"
+    return f"in {left} · {when:%a %H:%M}"
 
 
-def dur(s: float) -> str:
-    s = int(s)
-    return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
-
-
-def next_run(job: Job) -> tuple[str, float | None]:
+def next_run(job: Job) -> str:
     if not job.enabled:
-        return "—", None
+        return "—"
     if job.schedule == "@reboot":
-        return "at boot", None
+        return "at boot"
     try:
-        nxt = croniter(job.schedule, datetime.now()).get_next(datetime)
+        return until(croniter(job.schedule, datetime.now()).get_next(datetime))
     except (ValueError, KeyError):
-        return "bad schedule", None
-    delta = (nxt - datetime.now()).total_seconds()
-    when = f"{int(delta // 60)}m" if delta < 3600 else f"{delta / 3600:.1f}h"
-    return f"in {when} · {nxt:%a %H:%M}", nxt.timestamp()
+        return "bad schedule"
 
 
 def describe(schedule: str) -> str:

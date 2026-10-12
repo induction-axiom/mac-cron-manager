@@ -1,10 +1,10 @@
-# Publish the dashboard page (static/) to GitHub Pages. The page holds no data;
-# it talks to the agent each user runs on their own Mac at 127.0.0.1.
+# Publish the landing page (site/) to GitHub Pages. It holds no data: it looks for the
+# agent on the visitor's Mac (127.0.0.1) and opens it, or explains how to install it.
 name: pages
 on:
   push:
     branches: [main]
-    paths: [static/**, .github/workflows/pages.yml]
+    paths: [site/**, .github/workflows/pages.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,6 +23,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: static
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4

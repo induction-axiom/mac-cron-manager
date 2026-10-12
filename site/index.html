@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>mac-cron-manager</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%238a8a8a'/%3E%3C/svg%3E">
+<style>
+  /* Same palette as the dashboard (static/index.html). */
+  :root {
+    --bg: #fafaf9; --panel: #f3f3f1; --line: #e2e2df; --text: #27272a; --dim: #5f5f66; --faint: #8b8b92;
+    --ok: #2f7a4d;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1c1f; --panel: #232327; --line: #34343a; --text: #e3e3e6; --dim: #a6a6ae; --faint: #7c7c85; --ok: #7fb894; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+  main { max-width: 680px; margin: 0 auto; padding: 56px 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  a { color: inherit; text-underline-offset: 2px; }
+  .dim { color: var(--dim); }
+  #status { display: flex; align-items: center; gap: 10px; margin: 28px 0; padding: 12px 16px;
+            background: var(--panel); border-radius: 8px; }
+  #status i { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
+  #status.found i { background: var(--ok); }
+  ol { padding-left: 22px; } li { margin: 0 0 18px; }
+  pre { position: relative; margin: 8px 0 0; padding: 10px 14px; padding-right: 64px; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 6px; font: 13px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+  pre button { position: absolute; top: 7px; right: 7px; font: 500 12px var(--sans); color: var(--text); background: var(--bg);
+               border: 1px solid var(--line); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
+  pre button:hover { border-color: var(--faint); }
+</style>
+</head>
+<body>
+<main>
+  <h1>mac-cron-manager</h1>
+  <div class="dim">A dashboard for the cron jobs and launchd agents on your Mac.</div>
+
+  <div id="status"><i></i><span>Looking for the agent on this Mac…</span></div>
+
+  <div id="install" hidden>
+    <p class="dim">The dashboard runs on your Mac, served by a small agent at <a id="agent-link"></a>.
+      Nothing leaves your machine; this page only checks whether the agent is there and takes you to it.</p>
+    <ol>
+      <li>Install the agent (macOS, Python 3.10+). It starts at login from then on:
+        <pre>git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager &amp;&amp; ~/mac-cron-manager/install.sh</pre></li>
+      <li>Come back here. If the browser asks whether this site may access devices on your local network, choose
+        <b>Allow</b>: that's how it finds the agent. Or skip this page and open <a class="agent-url"></a> directly.</li>
+      <li>Installed before but not responding? Restart it:
+        <pre>launchctl kickstart -k gui/$(id -u)/local.mac-cron-manager</pre></li>
+    </ol>
+    <p class="dim">Source and docs: <a href="https://github.com/induction-axiom/mac-cron-manager">github.com/induction-axiom/mac-cron-manager</a></p>
+  </div>
+</main>
+
+<script>
+// ?agent=http://127.0.0.1:8080 for an agent installed on another port.
+const AGENT = (new URLSearchParams(location.search).get("agent") || "http://127.0.0.1:7878").replace(/\/$/, "");
+
+for (const a of document.querySelectorAll("#agent-link, .agent-url")) { a.href = AGENT; a.textContent = AGENT; }
+for (const pre of document.querySelectorAll("pre")) {
+  const btn = document.createElement("button");
+  btn.textContent = "copy";
+  btn.onclick = async () => {
+    await navigator.clipboard.writeText(pre.firstChild.textContent);
+    btn.textContent = "copied";
+    setTimeout(() => (btn.textContent = "copy"), 1500);
+  };
+  pre.append(btn);
+}
+
+async function agentRunning() {
+  try {
+    const res = await fetch(AGENT + "/api/ping", { signal: AbortSignal.timeout(2000) });
+    return (await res.json()).app === "mac-cron-manager";
+  } catch { return false; }
+}
+
+(async function look() {
+  if (await agentRunning()) {
+    document.querySelector("#status").className = "found";
+    document.querySelector("#status span").textContent = "Agent found, opening the dashboard…";
+    return location.replace(AGENT + "/");
+  }
+  document.querySelector("#status span").textContent = `No agent at ${AGENT} yet · checking again every few seconds`;
+  document.querySelector("#install").hidden = false;
+  setTimeout(look, 3000);  // jumps to the dashboard as soon as it's installed
+})();
+</script>
+</body>
+</html>

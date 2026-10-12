@@ -22,6 +22,8 @@ from pathlib import Path
 
 from croniter import croniter
 
+from core import until
+
 UID = os.getuid()
 GUI = f"gui/{UID}"
 DIRS = [  # folder, kind, scope (also the id prefix)
@@ -95,16 +97,13 @@ def _every(seconds: int) -> str:
     return f"every {seconds}s"
 
 
-def triggers(plist: dict, kind: str) -> tuple[str, str | None, float | None]:
-    """(summary, label for next run, next run timestamp)."""
+def triggers(plist: dict, kind: str) -> tuple[str, str | None]:
+    """(what starts the job, when it next runs if it's on a calendar)."""
     parts, nxt = [], None
     crons = _calendar_to_cron(plist["StartCalendarInterval"]) if "StartCalendarInterval" in plist else []
     if crons:
         parts.append("calendar " + ", ".join(crons))
-        now = datetime.now()
-        times = [croniter(c, now).get_next(datetime) for c in crons if croniter.is_valid(c)]
-        if times:
-            nxt = min(times)
+        nxt = min((croniter(c, datetime.now()).get_next(datetime) for c in crons if croniter.is_valid(c)), default=None)
     if "StartInterval" in plist:
         parts.append(_every(int(plist["StartInterval"])))
     if plist.get("RunAtLoad"):
@@ -115,15 +114,21 @@ def triggers(plist: dict, kind: str) -> tuple[str, str | None, float | None]:
         parts.append("on file change")
     if plist.get("MachServices") or plist.get("Sockets"):
         parts.append("on demand")
-    summary = " · ".join(parts) or "manual"
-    if nxt is None:
-        return summary, None, None
-    delta = (nxt - datetime.now()).total_seconds()
-    when = f"{int(delta // 60)}m" if delta < 3600 else f"{delta / 3600:.1f}h"
-    return summary, f"in {when} · {nxt:%a %H:%M}", nxt.timestamp()
+    return " · ".join(parts) or "manual", nxt and until(nxt)
+
+
+_scan_cache: tuple[float, list] = (0.0, [])
 
 
 def scan() -> list[dict]:
+    """All jobs, cached briefly: the page polls the list and the selected job's details together."""
+    global _scan_cache
+    if time.monotonic() - _scan_cache[0] > 2:
+        _scan_cache = (time.monotonic(), _scan())
+    return _scan_cache[1]
+
+
+def _scan() -> list[dict]:
     loaded = _loaded_agents()
     disabled = {"agent": _overrides(GUI), "daemon": _overrides("system")}
     procs = None
@@ -139,7 +144,7 @@ def scan() -> list[dict]:
                     data = plistlib.loads(f.read().lstrip())  # some vendors ship a leading newline; launchd accepts it
             except PermissionError:
                 job.update(readable=False, program=None, developer="?", trigger="(plist not readable as your user)",
-                           next=None, next_ts=None, pid=None, last_exit=None, loaded=None,
+                           next=None, pid=None, last_exit=None, loaded=None,
                            disabled=disabled[kind].get(path.stem, False), warning="", note="", actions=[], logs=[])
                 jobs.append(job)
                 continue
@@ -149,7 +154,7 @@ def scan() -> list[dict]:
             label = data.get("Label", path.stem)
             args = data.get("ProgramArguments") or []
             program = data.get("Program") or (args[0] if args else None)
-            trigger, next_label, next_ts = triggers(data, kind)
+            trigger, next_label = triggers(data, kind)
 
             if kind == "agent":
                 pid, last_exit = loaded.get(label, (None, None))
@@ -182,7 +187,7 @@ def scan() -> list[dict]:
                 **job, "label": label, "program": program,
                 "command": " ".join(args) if args else (program or ""),
                 "developer": "you" if developer == "unsigned" and scope == "user" else developer,
-                "trigger": trigger, "next": next_label, "next_ts": next_ts,
+                "trigger": trigger, "next": next_label,
                 "pid": pid, "last_exit": last_exit, "loaded": is_loaded, "disabled": is_disabled,
                 "warning": warning, "note": note, "actions": actions, "logs": logs,
             })
@@ -209,8 +214,14 @@ def details(job: dict) -> dict:
     return {"runs": runs, "log": text, "log_files": job["logs"]}
 
 
+def _changed() -> None:
+    global _scan_cache
+    _scan_cache = (0.0, [])
+
+
 def run_now(job: dict) -> None:
     subprocess.run(["launchctl", "kickstart", f"{GUI}/{job['label']}"], check=True, capture_output=True)
+    _changed()
 
 
 def toggle(job: dict) -> None:
@@ -223,3 +234,4 @@ def toggle(job: dict) -> None:
         subprocess.run(["launchctl", "disable", target], check=True, capture_output=True)
         subprocess.run(["launchctl", "bootout", target], capture_output=True)  # may not be loaded
     time.sleep(0.3)
+    _changed()

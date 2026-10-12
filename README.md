@@ -7,9 +7,10 @@ A dashboard for the scheduled and background jobs on your Mac.
   whether it's running, its log, and leftovers from uninstalled apps (program missing, empty plists).
   Agents can be started or disabled for your user; system daemons are view-only (they run as root).
 
-Black-and-white interface that follows the system light/dark setting.
+Calm, readable interface that follows the system light/dark setting.
 
-**Open it:** https://induction-axiom.github.io/mac-cron-manager/ — or http://127.0.0.1:7878 once the agent is installed.
+**Open it:** http://127.0.0.1:7878 once the agent is installed. https://induction-axiom.github.io/mac-cron-manager/
+takes you there too, or shows how to install it if your Mac doesn't have it yet.
 
 cron itself doesn't remember whether a job worked. `cronmon` fills that gap: put
 it in front of a job's command and it records start/end time, exit code and output.
@@ -44,33 +45,25 @@ git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager
 ```
 
 `install.sh` creates a virtualenv and registers a launchd agent (`local.mac-cron-manager`)
-that runs from login onwards and restarts if it dies. Then open the hosted page; the first
-time, Chrome asks whether the site may access apps on your device — choose **Allow**.
+that runs from login onwards and restarts if it dies. Then open http://127.0.0.1:7878.
 
-- Different port: `MCM_PORT=8080 ./install.sh` (then open the hosted page with `?agent=http://127.0.0.1:8080`)
+- Different port: `MCM_PORT=8080 ./install.sh` (the hosted page takes `?agent=http://127.0.0.1:8080`)
 - Remove: `./install.sh --uninstall`
-- Terminal version: `~/mac-cron-manager/tui`
 
 ## How it works
 
-The page is only an interface. All access to your Mac goes through the **agent**
-(`web.py`), a small HTTP server that listens on `127.0.0.1` only, runs as your user,
-reads `crontab -l` and the job records `cronmon` writes, and returns JSON.
-The same page can be loaded two ways:
+The **agent** (`web.py`) is a small HTTP server that listens on `127.0.0.1` only and runs
+as your user. It reads `crontab -l`, the job records `cronmon` writes and the launchd
+folders, and serves the dashboard page together with its JSON API.
 
-| | hosted page (GitHub Pages) | local page (`http://127.0.0.1:7878`) |
-|---|---|---|
-| cron + launchd status, history, logs | ✅ | ✅ |
-| run now, enable / disable existing **cron** jobs | ✅ | ✅ |
-| edit the crontab, wrap a job in `cronmon` | ❌ | ✅ |
-| start / disable **launchd** agents | ❌ | ✅ |
+Because it can edit the crontab and run commands, only the page it serves itself may use
+it: requests need a `Host` of 127.0.0.1/localhost (against DNS rebinding) and no `Origin`
+or the agent's own, and POSTs a custom header that cross-site forms can't send.
 
-The limits are enforced by the agent, not the page: even a tampered hosted page can
-only run or switch cron jobs that are already in your crontab. It can't add a command,
-and it can't touch launchd jobs (so it can't, say, switch off security software). Any
-other website is refused outright (Origin allow-list, `Host` check against DNS
-rebinding, and a custom header that forces a CORS preflight). Allowed hosted origins
-are set with `MCM_REMOTE_ORIGINS` (comma-separated; empty to disable the hosted page).
+The hosted page (`site/`, on GitHub Pages) holds no data and has no access to your jobs.
+It may only call `GET /api/ping` to see whether an agent is running, then sends the browser
+to http://127.0.0.1:7878. Its origin is set with `MCM_HOSTED_ORIGINS` (comma-separated; empty
+to turn the ping off).
 
 Every crontab change is backed up to `~/.local/state/mac-cron-manager/backups/` first.
 Disabled jobs stay in the crontab as `#off# <line>`.
@@ -79,11 +72,11 @@ Disabled jobs stay in the crontab as `#off# <line>`.
 |---|---|
 | `cronmon` | Wrapper used in crontab lines; writes `~/.local/state/mac-cron-manager/jobs/<name>/` (`runs.jsonl`, `last.log`, `current.log`, `running`, and `logs/<start>.log` for the last `MCM_KEEP_LOGS` runs, default 100). Skips a run if the previous one is still going. |
 | `web.py` | The agent (Python standard library HTTP server). |
-| `static/index.html` | The dashboard page, served by the agent and published to GitHub Pages. |
+| `static/index.html` | The dashboard page, served by the agent. |
+| `site/index.html` | The hosted landing page: finds the agent and opens it, or explains the install. |
 | `core.py` | Reads/writes the crontab and job state. |
 | `netcheck` | Tells whether the current network is a phone hotspot / untrusted (used by `cronmon --unmetered`). |
 | `launchd.py` | Scans `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`; checks code signatures. |
-| `tui.py` | Terminal dashboard ([Textual](https://textual.textualize.io/)). |
 
 ## macOS notes
 
@@ -91,7 +84,7 @@ Disabled jobs stay in the crontab as `#off# <line>`.
   for jobs that touch protected folders like `~/Pictures`, `~/Documents` or `~/Desktop`.
   The dashboard flags jobs that failed for this reason.
 - cron skips runs while the Mac is asleep; it doesn't catch up afterwards.
-- Keyboard: `1`/`2` cron/launchd, `j/k` select, `r` run, `space` enable/disable, `w` monitor, `e` edit crontab.
+- Keyboard: `1`/`2` cron/launchd, `j/k` select, `←/→` past runs, `r` run, `space` enable/disable, `w` monitor, `e` edit crontab.
 
 ## License
 

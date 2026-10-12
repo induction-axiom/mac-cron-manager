@@ -1,59 +1,49 @@
-"""mac-cron-manager agent: the local API behind the dashboard, on http://127.0.0.1:7878
+"""mac-cron-manager agent: serves the dashboard and its API on http://127.0.0.1:7878 only.
 
 install.sh registers it as a launchd agent so it starts at login and restarts if it dies.
 
-The same dashboard page can be opened two ways:
-  - locally, served by this agent at http://127.0.0.1:7878
-  - from the hosted page (GitHub Pages), which calls this agent across origins
+The agent can edit the crontab and run commands, so only the page it serves itself may
+use it. A request is refused unless
+  - its Host is 127.0.0.1 / localhost on our port (stops DNS rebinding), and
+  - it has no Origin, or our own (browsers always send Origin for other websites' requests).
+POSTs must also carry an X-MCM header, which a cross-site form can't add.
 
-Because the agent can touch the crontab and run commands, what a caller may do
-depends on where the request comes from, enforced here rather than in the page:
-
-  caller                        read cron + launchd   run / enable cron jobs   launchd actions, edit crontab, wrap
-  local page (127.0.0.1)               yes                    yes                         yes
-  hosted page (REMOTE_ORIGINS)         yes                    yes                         no
-  any other website                    no                     no                          no
-
-So even a tampered hosted page can only run or switch cron jobs already in the crontab:
-it can't add commands, and can't touch launchd jobs (e.g. switch off security software).
+The one exception: the hosted page (GitHub Pages) may GET /api/ping. It learns only
+that an agent is running, and then sends the browser to http://127.0.0.1:7878.
 """
 
 import json
 import os
 import socket
 import subprocess
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import core
 import launchd
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 PORT = int(os.environ.get("MCM_PORT", "7878"))
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 LOCAL_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
-REMOTE_ORIGINS = {o.strip().rstrip("/") for o in
-                  os.environ.get("MCM_REMOTE_ORIGINS", "https://induction-axiom.github.io").split(",") if o.strip()}
+HOSTED_ORIGINS = {o.strip().rstrip("/") for o in
+                  os.environ.get("MCM_HOSTED_ORIGINS", "https://induction-axiom.github.io").split(",") if o.strip()}
 INDEX = core.HERE / "static" / "index.html"
-
-# Which endpoints each kind of caller may use.
-REMOTE_ROUTES = {("GET", "/api/state"), ("GET", "/api/log"), ("GET", "/api/runs"), ("POST", "/api/run"), ("POST", "/api/toggle"),
-                 ("GET", "/api/launchd"), ("GET", "/api/launchd/detail")}
-LOCAL_ROUTES = REMOTE_ROUTES | {("GET", "/"), ("GET", "/api/crontab"), ("POST", "/api/crontab"), ("POST", "/api/wrap"),
-                                ("POST", "/api/launchd/run"), ("POST", "/api/launchd/toggle")}
 
 
 def job_json(job: core.Job) -> dict:
-    next_label, next_ts = core.next_run(job)
     return {
         "line": job.line_no, "raw": job.raw, "name": job.name,
         "schedule": job.schedule, "desc": core.describe(job.schedule), "command": job.command,
         "enabled": job.enabled, "monitored": job.monitored, "running_since": job.running_since,
-        "next": next_label, "next_ts": next_ts, "last": job.last,
-        "history": [{"start": r["start"], "status": r["status"], "reason": r.get("reason", "")} for r in job.runs],
+        "next": core.next_run(job), "last": job.last,
+        "history": [{"start": r["start"], "status": r["status"], "reason": r.get("reason", "")} for r in job.history],
         "warning": job.warning(),
     }
+
+
+def find_job(name: str) -> core.Job | None:
+    return next((j for j in core.load_jobs() if j.name == name), None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -63,24 +53,22 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     @property
-    def origin(self):
-        return self.headers.get("Origin")
+    def route(self) -> str:
+        return urlparse(self.path).path
 
-    def caller(self):
-        """'local', 'remote' or None (refused)."""
-        # Host check stops DNS rebinding (evil.com resolving to 127.0.0.1).
+    def query(self, key: str) -> str:
+        return parse_qs(urlparse(self.path).query).get(key, [""])[0]
+
+    def hosted_ping(self) -> bool:
+        return self.headers.get("Origin") in HOSTED_ORIGINS and self.route == "/api/ping"
+
+    def allowed(self) -> bool:
         if self.headers.get("Host") not in ALLOWED_HOSTS:
-            return None
-        # Browsers always send Origin on cross-origin requests; same-origin GETs
-        # from the local page (and the address bar) don't send one.
-        if self.origin is None or self.origin in LOCAL_ORIGINS:
-            return "local"
-        if self.origin in REMOTE_ORIGINS:
-            return "remote"
-        return None
-
-    def routes(self, caller):
-        return LOCAL_ROUTES if caller == "local" else REMOTE_ROUTES if caller == "remote" else set()
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None or origin in LOCAL_ORIGINS:
+            return self.command != "POST" or self.headers.get("X-MCM") == "1"
+        return self.command == "GET" and self.hosted_ping()
 
     def reply(self, code: int, body=b"", ctype="application/json", extra=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -91,93 +79,59 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Vary", "Origin")
-        if self.caller() == "remote":
-            self.send_header("Access-Control-Allow-Origin", self.origin)
+        if self.hosted_ping():
+            self.send_header("Access-Control-Allow-Origin", self.headers["Origin"])
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
-    def check(self, method):
-        """Return the caller kind if this request may proceed, else send 403 and return None."""
-        path = urlparse(self.path).path
-        caller = self.caller()
-        if (method, path) not in self.routes(caller):
-            msg = "not allowed from the hosted page; use http://127.0.0.1:%d" % PORT if caller == "remote" else "forbidden"
-            self.reply(403, {"error": msg})
-            return None
-        # A custom header can't be sent cross-origin without a preflight we approve,
-        # so other websites can't fire POSTs at us blind.
-        if method == "POST" and self.headers.get("X-MCM") != "1":
-            self.reply(403, {"error": "forbidden"})
-            return None
-        return caller
-
     def do_OPTIONS(self):
-        # CORS preflight from the hosted page.
-        path = urlparse(self.path).path
-        method = self.headers.get("Access-Control-Request-Method", "")
-        if self.caller() != "remote" or (method, path) not in REMOTE_ROUTES:
+        # Chrome asks before a public site may reach localhost (Private Network Access).
+        if self.headers.get("Host") not in ALLOWED_HOSTS or not self.hosted_ping():
             return self.reply(403)
-        extra = {
-            "Access-Control-Allow-Methods": "GET, POST",
-            "Access-Control-Allow-Headers": "Content-Type, X-MCM",
-            "Access-Control-Max-Age": "600",
-        }
-        # Chrome's Private/Local Network Access: a public site asking for localhost.
-        if self.headers.get("Access-Control-Request-Private-Network") == "true":
-            extra["Access-Control-Allow-Private-Network"] = "true"
-        self.reply(204, extra=extra)
+        self.reply(204, extra={"Access-Control-Allow-Methods": "GET", "Access-Control-Max-Age": "600",
+                               "Access-Control-Allow-Private-Network": "true"})
 
     def do_GET(self):
-        caller = self.check("GET")
-        if not caller:
-            return
-        url = urlparse(self.path)
-        if url.path == "/":
+        if not self.allowed():
+            return self.reply(403, {"error": "forbidden"})
+        path = self.route
+        if path == "/api/ping":
+            return self.reply(200, {"app": "mac-cron-manager", "version": VERSION})
+        if path == "/":
             return self.reply(200, INDEX.read_bytes(), "text/html; charset=utf-8")
-        if url.path == "/api/state":
-            allowed = sorted(p.removeprefix("/api/") for m, p in self.routes(caller) if m == "POST")
+        if path == "/api/state":
             return self.reply(200, {
-                "version": VERSION,
-                "caller": caller,
-                "allowed": allowed,
                 "host": socket.gethostname().split(".")[0],
                 "cron_up": core.cron_up(),
-                "now": time.time(),
-                "local_url": f"http://127.0.0.1:{PORT}",
                 "jobs": [job_json(j) for j in core.load_jobs()],
             })
-        if url.path == "/api/log":
-            name = parse_qs(url.query).get("name", [""])[0]
-            job = next((j for j in core.load_jobs() if j.name == name), None)
+        if path in ("/api/log", "/api/runs"):
+            job = find_job(self.query("name"))
             if not job:
                 return self.reply(404, {"error": "no such job"})
-            run = parse_qs(url.query).get("run", [""])[0]
+            if path == "/api/runs":
+                return self.reply(200, {"runs": [{**r, "log": job.run_log(r["start"]).exists()} for r in job.runs]})
+            run = self.query("run")
             f = job.run_log(int(run)) if run.isdigit() else job.log_file
             text = "\n".join(f.read_text(errors="replace").splitlines()[-500:]) if f.exists() else ""
             return self.reply(200, {"file": str(f), "text": text, "exists": f.exists()})
-        if url.path == "/api/runs":
-            name = parse_qs(url.query).get("name", [""])[0]
-            job = next((j for j in core.load_jobs() if j.name == name), None)
-            if not job:
-                return self.reply(404, {"error": "no such job"})
-            runs = [{**r, "log": job.run_log(r["start"]).exists()} for r in job.all_runs()]
-            return self.reply(200, {"runs": runs})
-        if url.path == "/api/crontab":
+        if path == "/api/crontab":
             return self.reply(200, {"text": "\n".join(core.read_crontab())})
-        if url.path == "/api/launchd":
+        if path == "/api/launchd":
             return self.reply(200, {"jobs": launchd.scan()})
-        if url.path == "/api/launchd/detail":
-            job = launchd.find(parse_qs(url.query).get("id", [""])[0])
+        if path == "/api/launchd/detail":
+            job = launchd.find(self.query("id"))
             if not job:
                 return self.reply(404, {"error": "no such job"})
             return self.reply(200, launchd.details(job))
+        self.reply(404, {"error": "not found"})
 
     def do_POST(self):
-        if not self.check("POST"):
-            return
-        path = urlparse(self.path).path
+        if not self.allowed():
+            return self.reply(403, {"error": "forbidden"})
+        path = self.route
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             if path == "/api/crontab":
@@ -195,6 +149,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(400, {"error": f"can't {action} this job"})
                 (launchd.run_now if action == "run" else launchd.toggle)(job)
                 return self.reply(200, {"ok": True})
+
+            if path not in ("/api/run", "/api/toggle", "/api/wrap"):
+                return self.reply(404, {"error": "not found"})
 
             # Job actions name the line and its exact text, so a crontab edited
             # elsewhere in the meantime can't make us act on the wrong job.
@@ -221,5 +178,4 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"mac-cron-manager agent {VERSION} on http://127.0.0.1:{PORT}", flush=True)
-    print(f"hosted pages allowed: {', '.join(sorted(REMOTE_ORIGINS)) or 'none'}", flush=True)
     server.serve_forever()
