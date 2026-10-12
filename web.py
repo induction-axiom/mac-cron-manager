@@ -12,6 +12,8 @@ The one exception: the hosted page (GitHub Pages) may GET /api/ping. It learns o
 that an agent is running, and then sends the browser to http://127.0.0.1:7878.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import socket

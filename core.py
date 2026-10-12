@@ -4,6 +4,8 @@ Disabled jobs stay in the crontab as `#off# <line>` so they can be switched back
 on. Every change to the crontab is preceded by a backup in <STATE>/backups/.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re

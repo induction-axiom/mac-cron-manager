@@ -26,7 +26,7 @@ Screenshots use made-up data.
 
 ## Install
 
-Requires macOS and Python 3.10 or later.
+Requires macOS with `python3` (the one in Apple's command line tools is enough).
 
 ```sh
 git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager

@@ -6,6 +6,8 @@ Serves static/index.html with a fake agent API on 127.0.0.1:7979, then has headl
 capture the cron and launchd tabs, light and dark, into docs/images/.
 """
 
+from __future__ import annotations
+
 import json
 import random
 import subprocess

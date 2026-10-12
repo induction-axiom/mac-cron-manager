@@ -19,6 +19,11 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  echo "mac-cron-manager needs python3 3.9 or later. Install Apple's command line tools with:"
+  echo "  xcode-select --install"
+  exit 1
+fi
 python3 -m venv "$DIR/.venv"
 "$DIR/.venv/bin/pip" install -q -r "$DIR/requirements.txt"
 chmod +x "$DIR/cronmon"

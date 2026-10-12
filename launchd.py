@@ -12,6 +12,8 @@ as a normal user launchd won't even report their state, so whether one is
 running is inferred from the process list.
 """
 
+from __future__ import annotations
+
 import os
 import plistlib
 import re
@@ -117,13 +119,13 @@ def triggers(plist: dict, kind: str) -> tuple[str, str | None]:
     return " · ".join(parts) or "manual", nxt and until(nxt)
 
 
-_scan_cache: tuple[float, list] = (0.0, [])
+_scan_cache: tuple[float, list] | None = None  # (when, jobs)
 
 
 def scan() -> list[dict]:
     """All jobs, cached briefly: the page polls the list and the selected job's details together."""
     global _scan_cache
-    if time.monotonic() - _scan_cache[0] > 2:
+    if _scan_cache is None or time.monotonic() - _scan_cache[0] > 2:
         _scan_cache = (time.monotonic(), _scan())
     return _scan_cache[1]
 
@@ -216,7 +218,7 @@ def details(job: dict) -> dict:
 
 def _changed() -> None:
     global _scan_cache
-    _scan_cache = (0.0, [])
+    _scan_cache = None
 
 
 def run_now(job: dict) -> None:
