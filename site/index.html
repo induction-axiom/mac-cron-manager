@@ -5,34 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>mac-cron-manager</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%238a8a8a'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='3' y='3' width='10' height='10' rx='3' fill='%23ab4aba'/%3E%3C/svg%3E">
 <style>
-  /* Same palette as the dashboard (static/index.html). */
+  /* Same Radix Colors tokens as the dashboard (static/index.html): mauve neutrals, plum accent. */
   :root {
-    --bg: #fafaf9; --panel: #f3f3f1; --line: #e2e2df; --text: #27272a; --dim: #5f5f66; --faint: #8b8b92;
-    --ok: #2f7a4d;
+    --bg: #fdfcfd; --panel: #f2eff3; --line: #dbd8e0; --text: #211f26; --dim: #65636d; --faint: #84828e;
+    --accent: #ab4aba; --accent-text: #953ea3; --ok: #2a7e3b;
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #1c1c1f; --panel: #232327; --line: #34343a; --text: #e3e3e6; --dim: #a6a6ae; --faint: #7c7c85; --ok: #7fb894; }
+    :root { --bg: #121113; --panel: #232225; --line: #3c393f; --text: #eeeef0; --dim: #b5b2bc; --faint: #7c7a85;
+            --accent: #ab4aba; --accent-text: #e796f3; --ok: #71d083; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
-  main { max-width: 680px; margin: 0 auto; padding: 56px 20px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
+  main { max-width: 680px; margin: 0 auto; padding: 64px 20px; }
+  h1 { display: flex; align-items: center; gap: 12px; font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.02em; }
+  h1::before { content: ""; width: 18px; height: 18px; border-radius: 5px; background: var(--accent); }
   a { color: inherit; text-underline-offset: 2px; }
   .dim { color: var(--dim); }
-  #status { display: flex; align-items: center; gap: 10px; margin: 28px 0; padding: 12px 16px;
+  #status { display: flex; align-items: center; gap: 10px; margin: 32px 0; padding: 12px 16px;
             background: var(--panel); border-radius: 8px; }
   #status i { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
   #status.found i { background: var(--ok); }
-  ol { padding-left: 22px; } li { margin: 0 0 18px; }
+  ol { padding-left: 22px; } li { margin: 0 0 18px; } li::marker { color: var(--accent-text); font-weight: 600; }
   pre { position: relative; margin: 8px 0 0; padding: 10px 14px; padding-right: 64px; background: var(--panel);
         border: 1px solid var(--line); border-radius: 6px; font: 13px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
   pre button { position: absolute; top: 7px; right: 7px; font: 500 12px var(--sans); color: var(--text); background: var(--bg);
                border: 1px solid var(--line); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
-  pre button:hover { border-color: var(--faint); }
+  pre button:hover { border-color: var(--accent); }
 </style>
 </head>
 <body>

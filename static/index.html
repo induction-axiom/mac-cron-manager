@@ -7,19 +7,24 @@
 <title>mac-cron-manager</title>
 <link id="favicon" rel="icon" href="data:,">
 <style>
-  /* Soft neutrals instead of pure black/white, readable secondary text (>= 5:1), sans for prose, mono for code. */
+  /* Radix Colors (radix-ui.com/colors) scales, by step: mauve for the neutrals, plum as the one accent,
+     grass / red / amber for status. Steps keep light and dark contrast consistent: 1-2 backgrounds,
+     3 selected, 4-6 borders, 9 solid, 11 secondary text, 12 text. To change the accent, swap the three
+     --accent* values for another scale's 3 / 9 / 11. site/index.html uses the same tokens. */
   :root {
-    --bg: #fafaf9; --panel: #f3f3f1; --line: #e2e2df; --row: #ececea; --hover: #f1f1ef; --sel: #e9e9e6;
-    --text: #27272a; --dim: #5f5f66; --faint: #8b8b92; --code: #f4f4f2; --fail: #b93a32; --ok: #2f7a4d; --warn: #a16207;
-    --accent: #27272a; --chip: #ececea;
+    --bg: #fdfcfd; --code: #faf9fb; --panel: #f2eff3; --row: #eae7ec; --line: #dbd8e0; --hover: #faf9fb;
+    --text: #211f26; --dim: #65636d; --faint: #84828e;
+    --sel: #fbebfb; --accent: #ab4aba; --accent-text: #953ea3;
+    --ok: #2a7e3b; --fail: #ce2c31; --warn: #ab6400;
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1c1c1f; --panel: #232327; --line: #34343a; --row: #2a2a2f; --hover: #232328; --sel: #2c2c32;
-      --text: #e3e3e6; --dim: #a6a6ae; --faint: #7c7c85; --code: #202024; --fail: #e0857e; --ok: #7fb894; --warn: #d4a663;
-      --accent: #e3e3e6; --chip: #2c2c32;
+      --bg: #121113; --code: #1a191b; --panel: #232225; --row: #2b292d; --line: #3c393f; --hover: #1a191b;
+      --text: #eeeef0; --dim: #b5b2bc; --faint: #7c7a85;
+      --sel: #351a35; --accent: #ab4aba; --accent-text: #e796f3;
+      --ok: #71d083; --fail: #ff9592; --warn: #ffca16;
     }
   }
   * { box-sizing: border-box; }
@@ -31,23 +36,26 @@
   code, .mono { font-family: var(--mono); font-size: 12.5px; }
   button { font: 500 13px/1.4 var(--sans); color: var(--text); background: var(--bg); border: 1px solid var(--line);
            border-radius: 6px; padding: 3px 11px; cursor: pointer; }
-  button:hover { border-color: var(--faint); background: var(--hover); }
+  button:hover { border-color: var(--accent); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button:disabled { opacity: .4; cursor: default; border-color: var(--line); background: transparent; }
+  button:disabled { opacity: .4; cursor: default; border-color: var(--line); }
   kbd { font: 500 11.5px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
         padding: 0 5px; background: var(--panel); color: var(--text); }
-  .dim { color: var(--dim); } .faint { color: var(--faint); } .fail { color: var(--fail); } .ok { color: var(--ok); } .warn { color: var(--warn); }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .warn { color: var(--warn); }
+  .ok { color: var(--ok); } .fail { color: var(--fail); }
 
   header { display: flex; gap: 18px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line);
            white-space: nowrap; overflow-x: auto; }
-  .host { background: var(--chip); font-weight: 600; padding: 2px 10px; border-radius: 6px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .brand::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+  .host { background: var(--panel); font-weight: 600; padding: 2px 10px; border-radius: 6px; }
   .spacer { flex: 1; }
   #clock { font-variant-numeric: tabular-nums; }
 
   nav { display: flex; gap: 6px; align-items: flex-end; padding: 0 20px; border-bottom: 1px solid var(--line); }
   nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 10px 8px;
                color: var(--dim); background: transparent; font-size: 14px; }
-  nav button:hover { background: transparent; color: var(--text); }
+  nav button:hover { color: var(--text); }
   nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   nav .filters { margin-left: auto; display: flex; gap: 4px; padding-bottom: 7px; }
   nav .filters button { border: 1px solid transparent; border-radius: 6px; padding: 2px 10px; font-size: 13px; }
@@ -74,9 +82,9 @@
   .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hist { display: inline-flex; gap: 2px; vertical-align: middle; padding-top: 3px; }
-  .hist i { width: 5px; height: 14px; border-radius: 2px; background: var(--ok); opacity: .6; cursor: pointer; }
-  .hist i.fail { background: var(--fail); opacity: .9; } .hist i.skipped { background: var(--faint); opacity: .35; }
-  .hist i:hover { opacity: 1; } .hist i.on { opacity: 1; box-shadow: 0 0 0 1.5px var(--text); }
+  .hist i { width: 5px; height: 14px; border-radius: 2px; background: var(--ok); opacity: .75; cursor: pointer; }
+  .hist i.fail { background: var(--fail); opacity: .9; } .hist i.skipped { background: var(--faint); opacity: .4; }
+  .hist i:hover { opacity: 1; } .hist i.on { opacity: 1; box-shadow: 0 0 0 1.5px var(--accent); }
 
   .runs { display: flex; flex-direction: column; gap: 6px; }
   .runhead { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -85,20 +93,23 @@
            overflow-x: auto; overflow-y: hidden; background: var(--panel); border-radius: 8px; cursor: pointer;
            user-select: none; -webkit-user-select: none; touch-action: pan-y; scrollbar-width: thin; }
   .strip i { flex: 0 0 9px; display: flex; align-items: flex-end; }
-  .strip i::after { content: ""; width: 100%; height: var(--h); border-radius: 2px; background: var(--ok); opacity: .55; }
-  .strip i.fail::after { background: var(--fail); opacity: .8; }
-  .strip i.skipped::after { background: var(--faint); opacity: .35; }
+  .strip i::after { content: ""; width: 100%; height: var(--h); border-radius: 2px; background: var(--ok); opacity: .7; }
+  .strip i.fail::after { background: var(--fail); opacity: .85; }
+  .strip i.skipped::after { background: var(--faint); opacity: .4; }
   .strip i.running::after { opacity: 1; animation: pulse 1.2s ease-in-out infinite alternate; }
   @keyframes pulse { from { opacity: .35; } }
   .strip i:hover::after { opacity: 1; }
-  .strip i.on::after { opacity: 1; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--text); }
+  .strip i.on::after { opacity: 1; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--accent); }
   .strip .day { flex: 0 0 1px; background: var(--line); position: relative; margin: 0 5px; }
   .strip .day em { position: absolute; top: -17px; left: -2px; font: 11.5px var(--sans); color: var(--faint); white-space: nowrap; }
   .runmeta { font-size: 13px; color: var(--dim); min-height: 1.55em; }
   .runmeta b { color: var(--text); font-weight: 600; }
   .actions { display: flex; gap: 6px; }
+  @media (prefers-reduced-motion: reduce) { .strip i.running::after, .spin { animation: none; } }
 
-  .detail { display: flex; flex-direction: column; min-height: 0; padding: 16px 20px; gap: 10px; }
+  /* the log takes whatever height is left; when even its minimum doesn't fit, the whole pane scrolls */
+  .detail { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 16px 20px; gap: 10px; }
+  .detail > * { flex-shrink: 0; }
   .detail .title { font-size: 15px; }
   .cmd { font: 12.5px/1.6 var(--mono); word-break: break-all; background: var(--panel); border-radius: 6px; padding: 7px 12px; }
   .cmd::before { content: "$ "; color: var(--faint); }
@@ -110,8 +121,9 @@
   .banner.hint { border-left-color: var(--faint); color: var(--dim); }
   .logbar { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); font-size: 12.5px; margin-top: 4px; }
   #logfile { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  pre.log { flex: 1; margin: 0; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 8px;
-            padding: 14px 16px; font: 12.5px/1.7 var(--mono); white-space: pre-wrap; word-break: break-word; min-height: 120px; }
+  pre.log { flex: 1 1 0; margin: 0; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+            padding: 14px 16px; font: 12.5px/1.7 var(--mono); white-space: pre-wrap; word-break: break-word; min-height: 160px; }
+  pre.log:focus { outline: none; border-color: var(--accent); }
   pre.log .err { color: var(--fail); }
 
   footer { padding: 8px 20px; border-top: 1px solid var(--line); color: var(--dim); display: flex; gap: 20px;
@@ -119,7 +131,7 @@
 
   dialog { width: min(1000px, 94vw); background: var(--bg); color: var(--text); border: 1px solid var(--line);
            border-radius: 10px; padding: 0; }
-  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog::backdrop { background: rgb(10 6 16 / .5); }
   dialog .head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
   dialog .head > span:last-child { font-size: 12.5px; }
   dialog textarea { width: 100%; height: 55vh; background: var(--code); color: var(--text); border: 0; padding: 14px 16px;
@@ -129,14 +141,14 @@
 
   #toast { position: fixed; right: 20px; bottom: 52px; display: flex; flex-direction: column; gap: 6px; }
   #toast div { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px;
-               box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+               box-shadow: 0 4px 16px rgb(0 0 0 / .18); }
   #toast div.error { background: var(--fail); color: #fff; }
   .empty { padding: 28px 20px; color: var(--dim); }
-
 </style>
 </head>
 <body>
 <header>
+  <span class="brand">mac-cron-manager</span>
   <span class="host" id="host">…</span>
   <span>cron <span id="cron">…</span></span>
   <span id="summary" class="dim"></span>
@@ -319,7 +331,7 @@ function render() {
   $("#summary").innerHTML = [running && `${running} running`, failing && `<span class="fail">${failing} failing</span>`]
     .filter(Boolean).join(" · ") || '<span class="ok">all good</span>';
   document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? "◐ mac-cron-manager" : "mac-cron-manager";
-  setFavicon(failing ? "#b93a32" : running ? "#2f7a4d" : "#8a8a8a");
+  setFavicon(failing ? "#ce2c31" : running ? "#2a7e3b" : "#ab4aba");
 
   $("#n-cron").textContent = jobs.length;
   $("#n-launchd").innerHTML = ld ? `${ld.length}${issues ? ` <span class="fail">· ${issues} !</span>` : ""}` : "";
@@ -367,7 +379,7 @@ function cronDetail(j) {
     </div>` : ""}
     ${j.monitored ? "" : `<div class="banner hint">Not monitored: press <kbd>w</kbd> to wrap it in cronmon to get status + logs.</div>`}
     <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
-    <pre class="log" id="log"></pre>`;
+    <pre class="log" id="log" tabindex="0" title="click to scroll with the keyboard · esc to go back to shortcuts"></pre>`;
 }
 
 function ldDetailHtml(j) {
@@ -383,7 +395,7 @@ function ldDetailHtml(j) {
     </div>
     ${j.kind === "daemon" ? '<div class="banner hint">System daemon: runs as root, so it can only be viewed here.</div>' : ""}
     <div class="logbar"><span id="logfile"></span><span></span></div>
-    <pre class="log" id="log"></pre>`;
+    <pre class="log" id="log" tabindex="0" title="click to scroll with the keyboard · esc to go back to shortcuts"></pre>`;
 }
 
 function showLog(text, files, empty = "(no log)") {
@@ -534,6 +546,7 @@ async function loadLdDetail(j) {
     if (tab !== "launchd" || j.id !== sel.launchd) return;
     $("#ld-runs").textContent = data.runs ?? "—";
     $("#logfile").textContent = data.log_files.length ? data.log_files.join(", ") : "this job doesn't write a log file";
+    $("#log").hidden = !data.log_files.length;
     showLog(data.log, data.log_files.join());
   } catch { /* next poll retries */ }
 }
@@ -631,6 +644,15 @@ $("#rows").addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if ($("#editor").open || e.metaKey || e.ctrlKey || e.altKey) return;
+  const log = e.target.closest?.("#log");
+  if (log) {  // while the log has focus, keys scroll it instead of driving the dashboard
+    const page = log.clientHeight * 0.9;
+    const by = { ArrowDown: 40, ArrowUp: -40, PageDown: page, PageUp: -page, " ": e.shiftKey ? -page : page,
+                 Home: -log.scrollHeight, End: log.scrollHeight }[e.key];
+    if (by !== undefined) { e.preventDefault(); log.scrollBy(0, by); }
+    if (e.key === "Escape") log.blur();
+    return;
+  }
   const keys = currentList().map(keyOf);
   const i = keys.indexOf(sel[tab]);
   const move = (d) => { sel[tab] = keys[Math.min(keys.length - 1, Math.max(0, i + d))]; render(); };
