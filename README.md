@@ -58,6 +58,10 @@ For example, only on power:
 The run is skipped when the command fails, and stopped if it starts failing
 while the job runs.
 
+A run that's still going after two hours is stopped and marked as failed, so a
+stuck job doesn't hold up the next ones. Change it with `--timeout 30m`, or
+`--timeout 0` for no limit.
+
 A few things about cron on macOS:
 
 - Jobs that read `~/Pictures`, `~/Documents` or `~/Desktop` need **Full Disk

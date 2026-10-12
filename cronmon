@@ -1,5 +1,5 @@
 #!/bin/bash
-# cronmon [--when CHECK] NAME COMMAND [ARGS...]
+# cronmon [--when CHECK] [--timeout TIME] NAME COMMAND [ARGS...]
 #
 # Run COMMAND and record the result for mac-cron-manager: start/end time, exit code and
 # the command's output. Use it as the command of a crontab line, e.g.
@@ -9,6 +9,8 @@
 # --when CHECK  run only while the shell command CHECK succeeds: if it fails before the
 #               start, the run is skipped with CHECK's last line of output as the reason;
 #               it's checked again every 20 s and stops the run when it starts failing.
+# --timeout TIME  stop a run that's still going after TIME (e.g. 90s, 30m, 3h; 0 = never) and
+#               record it as failed. Default MCM_TIMEOUT, or 2h. Time asleep doesn't count.
 #
 # A job may write one line to the file named by $CRONMON_RESULT: "idle" when it
 # found nothing to do, or a short summary of what it did ("uploaded 3 files").
@@ -17,14 +19,23 @@
 set -u
 
 when=""
+timeout="${MCM_TIMEOUT:-2h}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --when) when="${2:?--when needs a command}"; shift 2 ;;
+    --timeout) timeout="${2:?--timeout needs a time}"; shift 2 ;;
     --) shift; break ;;
     -*) echo "cronmon: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
 done
+
+case "$timeout" in
+  *h) limit=$(( ${timeout%h} * 3600 )) ;;
+  *m) limit=$(( ${timeout%m} * 60 )) ;;
+  *s) limit=${timeout%s} ;;
+  *) limit=$timeout ;;
+esac
 
 name="$1"; shift
 dir="${MCM_STATE:-$HOME/.local/state/mac-cron-manager}/jobs/$name"
@@ -89,21 +100,25 @@ set -m
 "$@" >"$dir/current.log" 2>&1 &
 pid=$!
 
-stopped=""
-if [ -n "$when" ]; then
-  ticks=0
-  while kill -0 "$pid" 2>/dev/null; do
-    sleep 1
-    ticks=$((ticks + 1))
-    if [ $((ticks % 20)) -eq 0 ] && ! check; then
-      stopped="stopped: $verdict"
-      echo "[cronmon] $stopped" >>"$dir/current.log"
-      kill -TERM -- "-$pid" 2>/dev/null
-      break
-    fi
-  done
-fi
-wait "$pid" 2>/dev/null  # (silences bash's "Terminated" job notice)
+# Watch the run: stop it when it overstays its timeout, or when the --when check starts failing.
+stopped="" timed_out="" ticks=0
+while kill -0 "$pid" 2>/dev/null; do
+  sleep 1  # counts seconds awake: across a system sleep it returns once
+  ticks=$((ticks + 1))
+  if [ "$limit" -gt 0 ] && [ "$ticks" -ge "$limit" ]; then
+    timed_out="timed out after $timeout"
+  elif [ -n "$when" ] && [ $((ticks % 20)) -eq 0 ] && ! check; then
+    stopped="stopped: $verdict"
+  else
+    continue
+  fi
+  echo "[cronmon] ${timed_out:-$stopped}" >>"$dir/current.log"
+  kill -TERM -- "-$pid" 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null && sleep 1; done
+  kill -KILL -- "-$pid" 2>/dev/null  # it had 10 s to finish on its own
+  break
+done 2>/dev/null  # bash's "Terminated" job notices would otherwise reach cron, which mails them
+wait "$pid" 2>/dev/null
 code=$?
 
 mv -f "$dir/current.log" "$dir/last.log"
@@ -115,6 +130,8 @@ rm -f "$CRONMON_RESULT"
 if [ -n "$stopped" ]; then
   record "$start" "$(date +%s)" "$code" skipped "$stopped"
   code=0
+elif [ -n "$timed_out" ]; then
+  record "$start" "$(date +%s)" "$code" fail "$timed_out"
 else
   status=ok; [ "$code" -ne 0 ] && status=fail
   summary="$outcome"

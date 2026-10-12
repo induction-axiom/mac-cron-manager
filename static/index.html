@@ -258,7 +258,7 @@ function cronLast(j) {
   if (j.running_since) return '<span class="ok">running</span>';
   if (!j.monitored) return '<span class="dim">not monitored</span>';
   if (!j.last) return '<span class="dim">never</span>';
-  if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
+  if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · ${esc(j.last.reason || `exit ${j.last.exit}`)}</span>`;
   if (j.last.status === "skipped") return `${ago(j.last.end)} <span class="dim">· skipped${j.last.reason ? ` (${esc(j.last.reason)})` : ""}</span>`;
   if (j.last.status === "idle") return `${ago(j.last.end)} <span class="dim">· nothing to do</span>`;
   return ago(j.last.end);
@@ -521,7 +521,7 @@ function markRun(j) {
   const head = {
     ok: `<span class="ok">● ok</span>${r.summary ? ` · ${esc(r.summary)}` : ""} · took ${dur(r.end - r.start)} · exit 0`,
     idle: `<span class="ok">● idle</span> · nothing to do · took ${dur(r.end - r.start)}`,
-    fail: `<span class="fail">● failed</span> · took ${dur(r.end - r.start)} · exit ${r.exit}`,
+    fail: `<span class="fail">● failed</span>${r.reason ? ` · ${esc(r.reason)}` : ""} · took ${dur(r.end - r.start)} · exit ${r.exit}`,
     skipped: `<span class="faint">● skipped</span>${r.reason ? ` · ${esc(r.reason)}` : ""}`,
     running: `<span class="ok">● running</span> · ${dur(Date.now() / 1000 - r.start)} so far`,
   }[r.status] || esc(r.status);
