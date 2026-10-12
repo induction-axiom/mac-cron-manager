@@ -3,106 +3,118 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>mac-cron-manager</title>
 <link id="favicon" rel="icon" href="data:,">
 <style>
   :root {
-    --bg: #0b0e14; --panel: #10141c; --panel-2: #151a24; --line: #1f2633;
-    --text: #c7d0e0; --dim: #5c6780; --accent: #7aa2f7;
-    --ok: #3fb950; --fail: #f7546a; --warn: #e0af68; --run: #e0af68;
+    --bg: #ffffff; --panel: #f7f7f7; --line: #e5e5e5; --row: #f2f2f2; --sel: #ebebeb;
+    --text: #111111; --dim: #8a8a8a; --code: #fafafa; --fail: #d92d20;
+    --inv-bg: #111111; --inv-fg: #ffffff;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0b; --panel: #121212; --line: #262626; --row: #151515; --sel: #1d1d1d;
+      --text: #ececec; --dim: #7a7a7a; --code: #0f0f0f; --fail: #ff6159;
+      --inv-bg: #ececec; --inv-fg: #0b0b0b;
+    }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); }
   body { display: flex; flex-direction: column; }
-  button { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--line);
-           border-radius: 4px; padding: 2px 8px; cursor: pointer; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button:disabled { opacity: .35; cursor: default; border-color: var(--line); color: inherit; }
-  kbd { font: inherit; color: var(--accent); }
+  a { color: inherit; }
+  button { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line);
+           border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+  button:hover { border-color: var(--text); }
+  button:disabled { opacity: .35; cursor: default; border-color: var(--line); }
+  kbd { font: inherit; font-weight: 700; }
+  .dim { color: var(--dim); } .fail { color: var(--fail); }
 
-  header { display: flex; gap: 22px; align-items: center; padding: 8px 16px; background: var(--panel);
-           border-bottom: 1px solid var(--line); white-space: nowrap; overflow-x: auto; }
-  .host { background: var(--accent); color: var(--bg); font-weight: 700; padding: 0 8px; border-radius: 3px; }
+  header { display: flex; gap: 20px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line);
+           white-space: nowrap; overflow-x: auto; }
+  .host { background: var(--inv-bg); color: var(--inv-fg); font-weight: 700; padding: 0 8px; border-radius: 3px; }
   .spacer { flex: 1; }
-  .dim { color: var(--dim); }
-  .ok { color: var(--ok); } .fail { color: var(--fail); } .warn { color: var(--warn); }
+  .mode { border: 1px dashed var(--line); border-radius: 3px; padding: 0 6px; color: var(--dim); }
+
+  nav { display: flex; gap: 4px; align-items: flex-end; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 10px 6px; color: var(--dim); }
+  nav button.on { color: var(--text); border-bottom-color: var(--text); font-weight: 700; }
+  nav .filters { margin-left: auto; display: flex; gap: 2px; padding-bottom: 5px; }
+  nav .filters button { border: 1px solid transparent; border-radius: 3px; padding: 0 7px; font-size: 12px; }
+  nav .filters button.on { border-color: var(--line); color: var(--text); font-weight: 400; }
 
   main { flex: 1; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
-  .tablewrap { overflow: auto; max-height: 45vh; border-bottom: 1px solid var(--line); }
+  .tablewrap { overflow: auto; max-height: 48vh; border-bottom: 1px solid var(--line); }
   table { width: 100%; border-collapse: collapse; }
-  th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--dim);
-       padding: 6px 12px; border-bottom: 1px solid var(--line); text-transform: uppercase; font-size: 11px; letter-spacing: .06em; }
-  td { padding: 6px 12px; border-bottom: 1px solid #141924; white-space: nowrap; vertical-align: middle; }
+  th { position: sticky; top: 0; background: var(--bg); text-align: left; font-weight: 400; color: var(--dim);
+       padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  td { padding: 6px 12px; border-bottom: 1px solid var(--row); white-space: nowrap; vertical-align: middle; }
   tr.job { cursor: pointer; }
-  tr.job:hover td { background: #121722; }
-  tr.job.sel td { background: #18203a; }
-  tr.job.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  tr.job:hover td { background: var(--row); }
+  tr.job.sel td { background: var(--sel); }
+  tr.job.sel td:first-child { box-shadow: inset 2px 0 0 var(--text); }
   tr.off .name { text-decoration: line-through; color: var(--dim); }
   .name { font-weight: 700; }
-  .desc { color: var(--dim); font-size: 11px; }
-  .dot { font-size: 14px; }
-  .spin { display: inline-block; color: var(--run); animation: spin 1s steps(8) infinite; }
+  .sub { color: var(--dim); font-size: 11px; }
+  .dot { display: inline-block; width: 1ch; text-align: center; }
+  .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .hist { display: inline-flex; gap: 2px; vertical-align: middle; }
-  .hist i { width: 5px; height: 14px; border-radius: 1px; background: var(--ok); }
-  .hist i.fail { background: var(--fail); } .hist i.skipped { background: var(--warn); }
+  .hist i { width: 4px; height: 13px; border-radius: 1px; background: var(--text); opacity: .75; }
+  .hist i.fail { background: var(--fail); opacity: 1; } .hist i.skipped { background: var(--dim); opacity: .5; }
   .actions { display: flex; gap: 6px; }
 
-  .detail { display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; gap: 8px; }
-  .cmd { color: #7dcfff; word-break: break-all; }
+  .detail { display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; gap: 6px; }
+  .cmd { word-break: break-all; }
   .cmd::before { content: "$ "; color: var(--dim); }
-  .banner { border: 1px solid var(--fail); color: var(--fail); background: #2a1118; padding: 6px 10px; border-radius: 4px; }
-  .banner.hint { border-color: var(--warn); color: var(--warn); background: #2a2111; }
-  .logbar { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; }
-  pre#log { flex: 1; margin: 0; overflow: auto; background: #07090d; border: 1px solid var(--line); border-radius: 4px;
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0 14px; }
+  .kv span:nth-child(odd) { color: var(--dim); }
+  .banner { border-left: 2px solid var(--fail); color: var(--fail); padding: 2px 10px; }
+  .banner.hint { border-left-color: var(--dim); color: var(--dim); }
+  .logbar { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 4px; }
+  pre.log { flex: 1; margin: 0; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 4px;
             padding: 10px 12px; font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; min-height: 120px; }
-  pre#log .err { color: var(--fail); } pre#log .good { color: var(--ok); }
+  pre.log .err { color: var(--fail); }
 
-  footer { padding: 6px 16px; background: var(--panel); border-top: 1px solid var(--line); color: var(--dim);
-           display: flex; gap: 18px; flex-wrap: wrap; }
+  footer { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--dim); display: flex; gap: 18px; flex-wrap: wrap; }
 
-  dialog { width: min(1000px, 94vw); background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  dialog { width: min(1000px, 94vw); background: var(--bg); color: var(--text); border: 1px solid var(--line);
            border-radius: 8px; padding: 0; }
-  dialog::backdrop { background: rgba(0,0,0,.6); }
-  dialog .head { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
-  dialog textarea { width: 100%; height: 55vh; background: #07090d; color: var(--text); border: 0; padding: 12px 14px;
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog .head { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+  dialog textarea { width: 100%; height: 55vh; background: var(--code); color: var(--text); border: 0; padding: 12px 14px;
                     font: 13px/1.5 var(--mono); resize: vertical; outline: none; }
   dialog .foot { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
   #edit-err { color: var(--fail); white-space: pre-wrap; flex: 1; }
 
   #toast { position: fixed; right: 16px; bottom: 44px; display: flex; flex-direction: column; gap: 6px; }
-  #toast div { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
-               padding: 6px 12px; border-radius: 4px; }
-  #toast div.error { border-left-color: var(--fail); }
+  #toast div { background: var(--inv-bg); color: var(--inv-fg); padding: 6px 12px; border-radius: 4px; }
+  #toast div.error { background: var(--fail); color: #fff; }
   .empty { padding: 24px 16px; color: var(--dim); }
-  .mode { border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; color: var(--dim); }
-  .mode a { color: var(--accent); }
+
   #setup { padding: 32px 24px; max-width: 760px; }
   #setup h2 { font-size: 15px; margin: 0 0 12px; }
   #setup ol { padding-left: 20px; } #setup li { margin: 10px 0; }
-  #setup code { display: block; background: #07090d; border: 1px solid var(--line); border-radius: 4px;
+  #setup code { display: block; background: var(--code); border: 1px solid var(--line); border-radius: 4px;
                 padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
-  #setup .waiting { color: var(--warn); }
 </style>
 </head>
 <body>
 <header>
   <span class="host" id="host">…</span>
   <span>cron <span id="cron">…</span></span>
-  <span id="count" class="dim"></span>
-  <span id="running" class="dim"></span>
-  <span id="failing" class="dim"></span>
+  <span id="summary" class="dim"></span>
   <span class="spacer"></span>
   <span id="mode" class="mode" hidden></span>
   <span id="clock" class="dim"></span>
-  <button id="edit-btn" title="e">edit crontab</button>
+  <button id="edit-btn" title="e" hidden>edit crontab</button>
 </header>
 
 <section id="setup" hidden>
-  <h2>No local agent found at <span id="agent-url"></span> <span class="waiting">· retrying…</span></h2>
-  <p class="dim">This page is only the interface. A small agent on your Mac reads the crontab and runs jobs;
+  <h2>No local agent found at <span id="agent-url"></span> <span class="dim">· retrying…</span></h2>
+  <p class="dim">This page is only the interface. A small agent on your Mac reads the crontab and launchd jobs;
      the page talks to it over 127.0.0.1 and nothing leaves your machine.</p>
   <ol>
     <li>Install the agent (macOS, Python 3.10+). It starts at login from then on:
@@ -111,28 +123,36 @@
     <li>Already installed but stopped? Restart it:
       <code>launchctl kickstart -k gui/$(id -u)/local.mac-cron-manager</code></li>
   </ol>
-  <p class="dim">Prefer not to use a hosted page? Open <a id="local-link" href="http://127.0.0.1:7878">http://127.0.0.1:7878</a>
-     once the agent runs: it serves this same dashboard, with crontab editing enabled.</p>
+  <p class="dim">Prefer not to use a hosted page? Open <a href="http://127.0.0.1:7878">http://127.0.0.1:7878</a>
+     once the agent runs: it serves this same dashboard, with editing enabled.</p>
 </section>
+
+<nav id="tabs">
+  <button data-tab="cron" class="on">cron <span id="n-cron" class="dim"></span></button>
+  <button data-tab="launchd">launchd <span id="n-launchd" class="dim"></span></button>
+  <span class="filters" id="filters" hidden>
+    <button data-f="all" class="on">all</button><button data-f="user">user</button><button data-f="global">global</button><button data-f="system">system</button><button data-f="issues">issues</button>
+  </span>
+</nav>
 
 <main>
   <div class="tablewrap">
     <table>
-      <thead><tr><th></th><th>job</th><th>schedule</th><th>next</th><th>last</th><th>took</th><th>history</th><th></th></tr></thead>
-      <tbody id="jobs"></tbody>
+      <thead id="thead"></thead>
+      <tbody id="rows"></tbody>
     </table>
-    <div id="empty" class="empty" hidden>No cron jobs yet. Press <kbd>e</kbd> to edit the crontab.</div>
+    <div id="empty" class="empty" hidden></div>
   </div>
   <section class="detail" id="detail"></section>
 </main>
 
 <footer>
-  <span><kbd>j/k</kbd> select</span><span><kbd>r</kbd> run now</span><span><kbd>space</kbd> enable/disable</span>
-  <span><kbd>w</kbd> monitor</span><span><kbd>e</kbd> edit crontab</span><span><kbd>g</kbd> jump to log end</span>
+  <span><kbd>1</kbd>/<kbd>2</kbd> cron/launchd</span><span><kbd>j</kbd>/<kbd>k</kbd> select</span><span><kbd>r</kbd> run now</span>
+  <span><kbd>space</kbd> enable/disable</span><span><kbd>w</kbd> monitor</span><span><kbd>e</kbd> edit crontab</span>
 </footer>
 
 <dialog id="editor">
-  <div class="head"><span>crontab -e</span><span class="dim">ctrl/⌘+s save · esc cancel · a backup is kept on every save</span></div>
+  <div class="head"><span>crontab -e</span><span class="dim">⌘/ctrl+s save · esc cancel · the old crontab is backed up on save</span></div>
   <textarea id="crontab" spellcheck="false"></textarea>
   <div class="foot"><span id="edit-err"></span><button id="cancel">cancel</button><button id="save">save</button></div>
 </dialog>
@@ -144,14 +164,17 @@ const $ = (s) => document.querySelector(s);
 // Served by the agent itself (same origin), or hosted elsewhere and talking to the agent on 127.0.0.1.
 const LOCAL = location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(location.hostname);
 const AGENT = LOCAL ? "" : (new URLSearchParams(location.search).get("agent") || "http://127.0.0.1:7878");
-const can = (action) => (state.allowed || []).includes(action);
-let state = { jobs: [] };
-let selected = null;          // job name
-let logSig = null;
-let follow = true;            // keep the log scrolled to the bottom
 
+let state = { jobs: [], allowed: [] };   // /api/state: host, cron jobs, what this page may do
+let ld = null;                           // /api/launchd jobs, null until first load
+let tab = "cron";
+try { tab = localStorage.getItem("mcm.tab") || "cron"; } catch { /* storage unavailable */ }
+let filter = "all";
+let sel = { cron: null, launchd: null };
+let detailKey = null, logSig = null, follow = true;
+
+const can = (a) => (state.allowed || []).includes(a);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
 function ago(ts) {
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
   for (const [u, n] of [["d", 86400], ["h", 3600], ["m", 60]]) if (s >= n) return `${Math.floor(s / n)}${u} ago`;
@@ -177,117 +200,204 @@ async function api(path, body) {
   return data;
 }
 
-function statusDot(j) {
-  if (j.running_since) return '<span class="spin">◐</span>';
-  if (!j.enabled) return '<span class="dot dim">○</span>';
-  if (!j.monitored) return '<span class="dot dim">?</span>';
-  if (!j.last) return '<span class="dot dim">·</span>';
-  return `<span class="dot ${j.last.status === "ok" ? "ok" : j.last.status === "fail" ? "fail" : "warn"}">●</span>`;
-}
-
-function lastCell(j) {
-  if (j.running_since) return '<span class="warn">running</span>';
-  if (!j.monitored) return '<span class="dim">not monitored</span>';
-  if (!j.last) return '<span class="dim">never</span>';
-  if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
-  if (j.last.status === "skipped") return `<span class="warn">${ago(j.last.end)} · skipped</span>`;
-  return ago(j.last.end);
-}
-
-function tookCell(j) {
-  if (j.running_since) return `<span class="warn">${dur(Date.now() / 1000 - j.running_since)}</span>`;
-  return j.last && j.last.status !== "skipped" ? dur(j.last.end - j.last.start) : "";
-}
-
-function render() {
-  const jobs = state.jobs;
-  if (!jobs.find((j) => j.name === selected)) selected = jobs[0]?.name ?? null;
-
-  $("#host").textContent = state.host;
-  const mode = $("#mode");
-  mode.hidden = state.caller !== "remote";
-  mode.innerHTML = `hosted · run/enable only · <a href="${state.local_url}">edit locally</a>`;
-  $("#edit-btn").hidden = !can("crontab");
-  $("#cron").innerHTML = state.cron_up ? '<span class="ok">● up</span>' : '<span class="fail">● down</span>';
-  const running = jobs.filter((j) => j.running_since).length;
-  const failing = jobs.filter((j) => j.enabled && j.last?.status === "fail").length;
-  $("#count").textContent = `${jobs.length} jobs`;
-  $("#running").innerHTML = running ? `<span class="warn">${running} running</span>` : "0 running";
-  $("#failing").innerHTML = failing ? `<span class="fail">${failing} failing</span>` : "0 failing";
-  document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? `◐ mac-cron-manager` : "mac-cron-manager";
-  setFavicon(failing ? "#f7546a" : running ? "#e0af68" : "#3fb950");
-
-  $("#empty").hidden = jobs.length > 0;
-  $("#jobs").innerHTML = jobs.map((j) => `
-    <tr class="job ${j.name === selected ? "sel" : ""} ${j.enabled ? "" : "off"}" data-name="${esc(j.name)}">
-      <td>${statusDot(j)}</td>
-      <td class="name">${esc(j.name)}</td>
-      <td>${esc(j.schedule)}<div class="desc">${esc(j.desc)}</div></td>
-      <td>${esc(j.next)}</td>
-      <td>${lastCell(j)}</td>
-      <td>${tookCell(j)}</td>
-      <td><span class="hist">${j.history.map((h) => `<i class="${h}" title="${h}"></i>`).join("")}</span></td>
-      <td><span class="actions">
-        ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">▶ run</button>` : ""}
-        ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}
-        ${j.monitored || !can("wrap") ? "" : '<button data-act="wrap" title="w">monitor</button>'}
-      </span></td>
-    </tr>`).join("");
-  renderDetail();
-}
-
-function renderDetail() {
-  const j = state.jobs.find((j) => j.name === selected);
-  const d = $("#detail");
-  if (!j) { d.innerHTML = ""; logSig = null; return; }
-  const head = `${esc(j.name)}<span class="dim"> · ${esc(j.desc)}${j.enabled ? "" : " · disabled"}</span>`;
-  if (d.dataset.head !== head + j.command + j.warning + j.monitored) {
-    d.dataset.head = head + j.command + j.warning + j.monitored;
-    d.innerHTML = `
-      <div><span class="name">${head}</span></div>
-      <div class="cmd">${esc(j.command)}</div>
-      ${j.warning ? `<div class="banner">⚠ ${esc(j.warning)}</div>` : ""}
-      ${j.monitored ? "" : `<div class="banner hint">Not monitored: ${can("wrap") ? "press <kbd>w</kbd> to wrap" : "open the local page to wrap"} it in cronmon and get status + logs.</div>`}
-      <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
-      <pre id="log"></pre>`;
-    logSig = null;
-    $("#log").addEventListener("scroll", (e) => {
-      const el = e.target;
-      follow = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-    });
-  }
-  loadLog();
-}
-
-async function loadLog() {
-  const j = state.jobs.find((j) => j.name === selected);
-  if (!j || !j.monitored) { if ($("#log")) $("#log").textContent = ""; return; }
-  try {
-    const data = await api(`/api/log?name=${encodeURIComponent(j.name)}`);
-    if (j.name !== selected) return;
-    $("#logfile").textContent = data.file;
-    $("#logstate").innerHTML = j.running_since ? '<span class="warn">● live</span>' : "last run";
-    const sig = data.file + data.text.length + data.text.slice(-200);
-    if (sig === logSig) return;
-    logSig = sig;
-    const log = $("#log");
-    log.innerHTML = data.exists ? esc(data.text)
-      .replace(/^.*(error|fail|denied|not permitted).*$/gim, '<span class="err">$&</span>')
-      .replace(/^.*\b(uploaded \d+ file|done|success)\b.*$/gim, '<span class="good">$&</span>')
-      : '<span class="dim">(no runs yet)</span>';
-    if (follow) log.scrollTop = log.scrollHeight;
-  } catch (e) { /* server restarting; next poll retries */ }
-}
-
 function setFavicon(color) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="${color}"/></svg>`;
   $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(svg);
 }
 
+// ---------------------------------------------------------------- cron rows
+
+function cronDot(j) {
+  if (j.running_since) return '<span class="dot spin">◐</span>';
+  if (!j.enabled) return '<span class="dot dim">○</span>';
+  if (!j.monitored) return '<span class="dot dim">?</span>';
+  if (!j.last) return '<span class="dot dim">·</span>';
+  if (j.last.status === "fail") return '<span class="dot fail">●</span>';
+  return j.last.status === "skipped" ? '<span class="dot dim">●</span>' : '<span class="dot">●</span>';
+}
+function cronLast(j) {
+  if (j.running_since) return "running";
+  if (!j.monitored) return '<span class="dim">not monitored</span>';
+  if (!j.last) return '<span class="dim">never</span>';
+  if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
+  if (j.last.status === "skipped") return `${ago(j.last.end)} <span class="dim">· skipped</span>`;
+  return ago(j.last.end);
+}
+function cronTook(j) {
+  if (j.running_since) return dur(Date.now() / 1000 - j.running_since);
+  return j.last && j.last.status !== "skipped" ? dur(j.last.end - j.last.start) : "";
+}
+const CRON_HEAD = "<tr><th></th><th>job</th><th>schedule</th><th>next</th><th>last</th><th>took</th><th>history</th><th></th></tr>";
+const cronRow = (j) => `
+  <tr class="job ${j.name === sel.cron ? "sel" : ""} ${j.enabled ? "" : "off"}" data-key="${esc(j.name)}">
+    <td>${cronDot(j)}</td>
+    <td class="name">${esc(j.name)}</td>
+    <td>${esc(j.schedule)}<div class="sub">${esc(j.desc)}</div></td>
+    <td>${esc(j.next)}</td>
+    <td>${cronLast(j)}</td>
+    <td>${cronTook(j)}</td>
+    <td><span class="hist">${j.history.map((h) => `<i class="${h}" title="${h}"></i>`).join("")}</span></td>
+    <td><span class="actions">
+      ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>` : ""}
+      ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}
+      ${j.monitored || !can("wrap") ? "" : '<button data-act="wrap" title="w">monitor</button>'}
+    </span></td>
+  </tr>`;
+
+// ---------------------------------------------------------------- launchd rows
+
+function ldState(j) {
+  if (!j.readable) return '<span class="dim">unknown</span>';
+  if (j.disabled) return '<span class="dim">disabled</span>';
+  if (j.pid) return `running <span class="dim">· pid ${j.pid}</span>`;
+  if (j.kind === "daemon") return '<span class="dim">not running</span>';
+  if (!j.loaded) return '<span class="dim">not loaded</span>';
+  if (j.last_exit) return `<span class="fail">idle · exit ${j.last_exit}</span>`;
+  return 'idle <span class="dim">· exit 0</span>';
+}
+function ldDot(j) {
+  if (j.warning) return '<span class="dot fail">!</span>';
+  if (j.disabled) return '<span class="dot dim">○</span>';
+  if (j.pid) return '<span class="dot">●</span>';
+  if (j.loaded) return '<span class="dot dim">●</span>';
+  return '<span class="dot dim">·</span>';
+}
+const LD_HEAD = "<tr><th></th><th>label</th><th>where</th><th>trigger</th><th>next</th><th>state</th><th></th></tr>";
+const ldRow = (j) => `
+  <tr class="job ${j.id === sel.launchd ? "sel" : ""} ${j.disabled ? "off" : ""}" data-key="${esc(j.id)}">
+    <td>${ldDot(j)}</td>
+    <td><span class="name">${esc(j.label)}</span><div class="sub">${esc(j.developer)}</div></td>
+    <td>${j.scope}<div class="sub">${j.kind}</div></td>
+    <td>${esc(j.trigger)}</td>
+    <td>${esc(j.next || "")}</td>
+    <td>${ldState(j)}</td>
+    <td><span class="actions">
+      ${j.actions.includes("run") && can("launchd/run") ? '<button data-act="run" title="r">run</button>' : ""}
+      ${j.actions.includes("toggle") && can("launchd/toggle") ? `<button data-act="toggle" title="space">${j.disabled ? "enable" : "disable"}</button>` : ""}
+    </span></td>
+  </tr>`;
+
+function ldVisible() {
+  const jobs = ld || [];
+  if (filter === "issues") return jobs.filter((j) => j.warning || (j.last_exit && !j.pid));
+  return filter === "all" ? jobs : jobs.filter((j) => j.scope === filter);
+}
+
+// ---------------------------------------------------------------- render
+
+function currentList() { return tab === "cron" ? state.jobs : ldVisible(); }
+const keyOf = (j) => (tab === "cron" ? j.name : j.id);
+
+function render() {
+  const jobs = state.jobs;
+  $("#host").textContent = state.host;
+  $("#cron").innerHTML = state.cron_up ? "● up" : '<span class="fail">● down</span>';
+  const running = jobs.filter((j) => j.running_since).length;
+  const failing = jobs.filter((j) => j.enabled && j.last?.status === "fail").length;
+  const issues = (ld || []).filter((j) => j.warning).length;
+  $("#summary").innerHTML = [running && `${running} running`, failing && `<span class="fail">${failing} failing</span>`]
+    .filter(Boolean).join(" · ") || "all good";
+  document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? "◐ mac-cron-manager" : "mac-cron-manager";
+  setFavicon(failing ? "#d92d20" : "#8a8a8a");
+
+  $("#mode").hidden = state.caller !== "remote";
+  $("#mode").innerHTML = `hosted · limited · <a href="${state.local_url}">open locally</a> to edit`;
+  $("#edit-btn").hidden = !can("crontab");
+  $("#n-cron").textContent = jobs.length;
+  $("#n-launchd").innerHTML = ld ? `${ld.length}${issues ? ` <span class="fail">· ${issues} !</span>` : ""}` : "";
+  document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $("#filters").hidden = tab !== "launchd";
+  document.querySelectorAll("#filters button").forEach((b) => b.classList.toggle("on", b.dataset.f === filter));
+
+  const list = currentList();
+  if (!list.find((j) => keyOf(j) === sel[tab])) sel[tab] = list[0] ? keyOf(list[0]) : null;
+  $("#thead").innerHTML = tab === "cron" ? CRON_HEAD : LD_HEAD;
+  $("#rows").innerHTML = list.map(tab === "cron" ? cronRow : ldRow).join("");
+  $("#empty").hidden = list.length > 0;
+  $("#empty").innerHTML = tab === "cron" ? "No cron jobs yet." + (can("crontab") ? " Press <kbd>e</kbd> to edit the crontab." : "")
+    : ld ? "Nothing matches this filter." : "Loading launchd jobs…";
+  renderDetail();
+}
+
+function renderDetail() {
+  const d = $("#detail");
+  const j = currentList().find((x) => keyOf(x) === sel[tab]);
+  if (!j) { d.innerHTML = ""; detailKey = null; return; }
+  const key = tab + ":" + keyOf(j) + JSON.stringify(j.warning) + (j.monitored ?? "") + (j.disabled ?? j.enabled);
+  if (key !== detailKey) {
+    detailKey = key; logSig = null; follow = true;
+    d.innerHTML = tab === "cron" ? cronDetail(j) : ldDetailHtml(j);
+    $("#log")?.addEventListener("scroll", (e) => {
+      const el = e.target;
+      follow = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+    });
+  }
+  if (tab === "cron") loadCronLog(j); else loadLdDetail(j);
+}
+
+function cronDetail(j) {
+  return `
+    <div><span class="name">${esc(j.name)}</span> <span class="dim">· ${esc(j.desc)}${j.enabled ? "" : " · disabled"}</span></div>
+    <div class="cmd">${esc(j.command)}</div>
+    ${j.warning ? `<div class="banner">${esc(j.warning)}</div>` : ""}
+    ${j.monitored ? "" : `<div class="banner hint">Not monitored: ${can("wrap") ? "press <kbd>w</kbd> to wrap" : "open the local page to wrap"} it in cronmon to get status + logs.</div>`}
+    <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
+    <pre class="log" id="log"></pre>`;
+}
+
+function ldDetailHtml(j) {
+  return `
+    <div><span class="name">${esc(j.label)}</span> <span class="dim">· ${esc(j.developer)} · ${j.scope} ${j.kind}</span></div>
+    <div class="cmd">${esc(j.command || "(no program)")}</div>
+    ${j.warning ? `<div class="banner">${esc(j.warning)}</div>` : ""}
+    <div class="kv">
+      <span>plist</span><span>${esc(j.plist)}</span>
+      <span>trigger</span><span>${esc(j.trigger)}</span>
+      <span>runs</span><span id="ld-runs">…</span>
+    </div>
+    ${j.kind === "daemon" ? '<div class="banner hint">System daemon: runs as root, so it can only be viewed here.</div>' : ""}
+    ${j.actions.length && !can("launchd/toggle") ? '<div class="banner hint">launchd jobs can only be changed from the local page.</div>' : ""}
+    <div class="logbar"><span id="logfile"></span><span></span></div>
+    <pre class="log" id="log"></pre>`;
+}
+
+function showLog(text, files) {
+  const log = $("#log");
+  if (!log) return;
+  const sig = files + text.length + text.slice(-200);
+  if (sig === logSig) return;
+  logSig = sig;
+  log.innerHTML = text ? esc(text).replace(/^.*(error|fail|denied|not permitted|exception).*$/gim, '<span class="err">$&</span>')
+                       : '<span class="dim">(no log)</span>';
+  if (follow) log.scrollTop = log.scrollHeight;
+}
+
+async function loadCronLog(j) {
+  if (!j.monitored) { showLog("", ""); return; }
+  try {
+    const data = await api(`/api/log?name=${encodeURIComponent(j.name)}`);
+    if (tab !== "cron" || j.name !== sel.cron) return;
+    $("#logfile").textContent = data.file;
+    $("#logstate").textContent = j.running_since ? "● live" : "last run";
+    showLog(data.exists ? data.text : "", data.file);
+  } catch { /* agent restarting; next poll retries */ }
+}
+
+async function loadLdDetail(j) {
+  try {
+    const data = await api(`/api/launchd/detail?id=${encodeURIComponent(j.id)}`);
+    if (tab !== "launchd" || j.id !== sel.launchd) return;
+    $("#ld-runs").textContent = data.runs ?? "—";
+    $("#logfile").textContent = data.log_files.length ? data.log_files.join(", ") : "this job doesn't write a log file";
+    showLog(data.log, data.log_files.join());
+  } catch { /* next poll retries */ }
+}
+
+// ---------------------------------------------------------------- data
+
 function showSetup(on) {
   $("#setup").hidden = !on;
-  document.querySelector("main").hidden = on;
-  document.querySelector("footer").hidden = on;
+  for (const el of ["main", "footer", "nav"]) document.querySelector(el).hidden = on;
   if (on) { $("#edit-btn").hidden = true; $("#mode").hidden = true; }
 }
 
@@ -296,29 +406,46 @@ async function refresh() {
     state = await api("/api/state");
     showSetup(false);
     render();
-  } catch (e) {
-    state = { jobs: [] };
+  } catch {
+    state = { jobs: [], allowed: [] };
     showSetup(true);
     $("#agent-url").textContent = AGENT || location.origin;
     $("#host").textContent = "no agent";
     $("#cron").innerHTML = '<span class="fail">unreachable</span>';
+    $("#summary").textContent = "";
     document.title = "mac-cron-manager · no agent";
-    setFavicon("#5c6780");
+    setFavicon("#8a8a8a");
   }
 }
 
-async function act(action, name) {
-  const j = state.jobs.find((j) => j.name === name);
-  if (!j) return;
-  try {
-    await api(`/api/${action}`, { line: j.line, raw: j.raw });
-    toast({ run: `started ${j.name}`, toggle: `${j.name} ${j.enabled ? "disabled" : "enabled"}`, wrap: `${j.name} is now monitored` }[action]);
-  } catch (e) { toast(e.message, true); }
-  refresh();
+async function refreshLaunchd() {
+  try { ld = (await api("/api/launchd")).jobs; render(); } catch { /* agent down: refresh() shows setup */ }
 }
 
-// ---- crontab editor
+async function act(action, key) {
+  try {
+    if (tab === "cron") {
+      const j = state.jobs.find((x) => x.name === key);
+      if (!j) return;
+      await api(`/api/${action}`, { line: j.line, raw: j.raw });
+      toast({ run: `started ${j.name}`, toggle: `${j.name} ${j.enabled ? "disabled" : "enabled"}`, wrap: `${j.name} is now monitored` }[action]);
+      refresh();
+    } else {
+      const j = (ld || []).find((x) => x.id === key);
+      if (!j || !j.actions.includes(action) || !can(`launchd/${action}`)) return;
+      if (action === "toggle" && !j.disabled &&
+          !confirm(`Disable ${j.label} for your user?\nIt stops now and won't start again (even after a reboot) until you enable it.`)) return;
+      await api(`/api/launchd/${action}`, { id: j.id });
+      toast(action === "run" ? `started ${j.label}` : `${j.label} ${j.disabled ? "enabled" : "disabled"}`);
+      refreshLaunchd();
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------------------------------------------------------- editor
+
 async function openEditor() {
+  if (!can("crontab")) return;
   const { text } = await api("/api/crontab");
   $("#crontab").value = text;
   $("#edit-err").textContent = "";
@@ -341,34 +468,53 @@ $("#crontab").addEventListener("keydown", (e) => {
   if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "\t"); }
 });
 
-// ---- table clicks
-$("#jobs").addEventListener("click", (e) => {
+// ---------------------------------------------------------------- input
+
+function setTab(t) {
+  tab = t;
+  try { localStorage.setItem("mcm.tab", t); } catch { /* storage unavailable */ }
+  detailKey = null;
+  render();
+  if (t === "launchd") refreshLaunchd();
+}
+$("#tabs").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tab]");
+  if (t) return setTab(t.dataset.tab);
+  const f = e.target.closest("[data-f]");
+  if (f) { filter = f.dataset.f; detailKey = null; render(); }
+});
+$("#rows").addEventListener("click", (e) => {
   const row = e.target.closest("tr.job");
   if (!row) return;
   const btn = e.target.closest("button[data-act]");
-  if (btn) return act(btn.dataset.act, row.dataset.name);
-  if (selected !== row.dataset.name) { selected = row.dataset.name; follow = true; render(); }
+  if (btn) return act(btn.dataset.act, row.dataset.key);
+  if (sel[tab] !== row.dataset.key) { sel[tab] = row.dataset.key; render(); }
 });
-
-// ---- keyboard
 document.addEventListener("keydown", (e) => {
   if ($("#editor").open || e.metaKey || e.ctrlKey || e.altKey) return;
-  const names = state.jobs.map((j) => j.name);
-  const i = names.indexOf(selected);
-  const move = (d) => { selected = names[Math.min(names.length - 1, Math.max(0, i + d))]; follow = true; render(); };
+  const keys = currentList().map(keyOf);
+  const i = keys.indexOf(sel[tab]);
+  const move = (d) => { sel[tab] = keys[Math.min(keys.length - 1, Math.max(0, i + d))]; render(); };
+  const j = currentList()[i];
   switch (e.key) {
+    case "1": setTab("cron"); break;
+    case "2": setTab("launchd"); break;
     case "j": case "ArrowDown": e.preventDefault(); move(1); break;
     case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
-    case "r": act("run", selected); break;
-    case " ": e.preventDefault(); act("toggle", selected); break;
-    case "w": if (can("wrap") && !state.jobs[i]?.monitored) act("wrap", selected); break;
+    case "r": act("run", sel[tab]); break;
+    case " ": e.preventDefault(); act("toggle", sel[tab]); break;
+    case "w": if (tab === "cron" && can("wrap") && j && !j.monitored) act("wrap", sel[tab]); break;
     case "e": if (can("crontab")) { e.preventDefault(); openEditor(); } break;
-    case "g": follow = true; const l = $("#log"); if (l) l.scrollTop = l.scrollHeight; break;
   }
 });
 
 setInterval(() => { $("#clock").textContent = new Date().toLocaleString("sv-SE"); }, 1000);
-(function poll() { refresh().finally(() => setTimeout(poll, state.jobs.some((j) => j.running_since) ? 1000 : 2500)); })();
+(function poll() {
+  refresh().finally(() => setTimeout(poll, state.jobs.some((j) => j.running_since) ? 1000 : 2500));
+})();
+(function pollLaunchd() {
+  refreshLaunchd().finally(() => setTimeout(pollLaunchd, tab === "launchd" ? 3000 : 15000));
+})();
 </script>
 </body>
 </html>

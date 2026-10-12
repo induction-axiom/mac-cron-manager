@@ -9,24 +9,27 @@ The same dashboard page can be opened two ways:
 Because the agent can touch the crontab and run commands, what a caller may do
 depends on where the request comes from, enforced here rather than in the page:
 
-  caller                         read state/logs   run / enable / disable   edit crontab / wrap
-  local page (127.0.0.1)              yes                 yes                      yes
-  hosted page (REMOTE_ORIGINS)        yes                 yes                      no
-  any other website                   no                  no                       no
+  caller                        read cron + launchd   run / enable cron jobs   launchd actions, edit crontab, wrap
+  local page (127.0.0.1)               yes                    yes                         yes
+  hosted page (REMOTE_ORIGINS)         yes                    yes                         no
+  any other website                    no                     no                          no
 
-So even a tampered hosted page can only run or switch existing jobs, never add commands.
+So even a tampered hosted page can only run or switch cron jobs already in the crontab:
+it can't add commands, and can't touch launchd jobs (e.g. switch off security software).
 """
 
 import json
 import os
 import socket
+import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import core
+import launchd
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 PORT = int(os.environ.get("MCM_PORT", "7878"))
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 LOCAL_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
@@ -35,8 +38,10 @@ REMOTE_ORIGINS = {o.strip().rstrip("/") for o in
 INDEX = core.HERE / "static" / "index.html"
 
 # Which endpoints each kind of caller may use.
-REMOTE_ROUTES = {("GET", "/api/state"), ("GET", "/api/log"), ("POST", "/api/run"), ("POST", "/api/toggle")}
-LOCAL_ROUTES = REMOTE_ROUTES | {("GET", "/"), ("GET", "/api/crontab"), ("POST", "/api/crontab"), ("POST", "/api/wrap")}
+REMOTE_ROUTES = {("GET", "/api/state"), ("GET", "/api/log"), ("POST", "/api/run"), ("POST", "/api/toggle"),
+                 ("GET", "/api/launchd"), ("GET", "/api/launchd/detail")}
+LOCAL_ROUTES = REMOTE_ROUTES | {("GET", "/"), ("GET", "/api/crontab"), ("POST", "/api/crontab"), ("POST", "/api/wrap"),
+                                ("POST", "/api/launchd/run"), ("POST", "/api/launchd/toggle")}
 
 
 def job_json(job: core.Job) -> dict:
@@ -152,6 +157,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"file": str(f), "text": text, "exists": f.exists()})
         if url.path == "/api/crontab":
             return self.reply(200, {"text": "\n".join(core.read_crontab())})
+        if url.path == "/api/launchd":
+            return self.reply(200, {"jobs": launchd.scan()})
+        if url.path == "/api/launchd/detail":
+            job = launchd.find(parse_qs(url.query).get("id", [""])[0])
+            if not job:
+                return self.reply(404, {"error": "no such job"})
+            return self.reply(200, launchd.details(job))
 
     def do_POST(self):
         if not self.check("POST"):
@@ -165,6 +177,14 @@ class Handler(BaseHTTPRequestHandler):
                 if errors:
                     return self.reply(400, {"error": "\n".join(errors)})
                 core.write_crontab(lines)
+                return self.reply(200, {"ok": True})
+
+            if path.startswith("/api/launchd/"):
+                job = launchd.find(body.get("id", ""))
+                action = path.removeprefix("/api/launchd/")
+                if not job or action not in job["actions"]:
+                    return self.reply(400, {"error": f"can't {action} this job"})
+                (launchd.run_now if action == "run" else launchd.toggle)(job)
                 return self.reply(200, {"ok": True})
 
             # Job actions name the line and its exact text, so a crontab edited
@@ -183,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/wrap":
                 core.write_crontab(core.wrap(lines, job))
             return self.reply(200, {"ok": True})
+        except subprocess.CalledProcessError as e:
+            return self.reply(500, {"error": (e.stderr or b"").decode(errors="replace").strip() or str(e)})
         except (ValueError, KeyError) as e:
             return self.reply(400, {"error": str(e)})
 
