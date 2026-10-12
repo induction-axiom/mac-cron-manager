@@ -2,7 +2,7 @@
 
 A dashboard for the scheduled and background jobs on your Mac.
 
-- **cron**: every job with its next run, last result, run history and live output; run / enable / disable / edit.
+- **cron**: every job with its next run, last result and live output, plus a run timeline you can click or drag through to read any past run's output; run / enable / disable / edit.
 - **launchd**: the non-Apple agents and daemons apps have installed: who made each one, what triggers it,
   whether it's running, its log, and leftovers from uninstalled apps (program missing, empty plists).
   Agents can be started or disabled for your user; system daemons are view-only (they run as root).
@@ -77,7 +77,7 @@ Disabled jobs stay in the crontab as `#off# <line>`.
 
 | File | Role |
 |---|---|
-| `cronmon` | Wrapper used in crontab lines; writes `~/.local/state/mac-cron-manager/jobs/<name>/` (`runs.jsonl`, `last.log`, `current.log`, `running`). Skips a run if the previous one is still going. |
+| `cronmon` | Wrapper used in crontab lines; writes `~/.local/state/mac-cron-manager/jobs/<name>/` (`runs.jsonl`, `last.log`, `current.log`, `running`, and `logs/<start>.log` for the last `MCM_KEEP_LOGS` runs, default 100). Skips a run if the previous one is still going. |
 | `web.py` | The agent (Python standard library HTTP server). |
 | `static/index.html` | The dashboard page, served by the agent and published to GitHub Pages. |
 | `core.py` | Reads/writes the crontab and job state. |

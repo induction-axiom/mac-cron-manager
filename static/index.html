@@ -7,98 +7,138 @@
 <title>mac-cron-manager</title>
 <link id="favicon" rel="icon" href="data:,">
 <style>
+  /* Soft neutrals instead of pure black/white, readable secondary text (>= 5:1), sans for prose, mono for code. */
   :root {
-    --bg: #ffffff; --panel: #f7f7f7; --line: #e5e5e5; --row: #f2f2f2; --sel: #ebebeb;
-    --text: #111111; --dim: #8a8a8a; --code: #fafafa; --fail: #d92d20;
-    --inv-bg: #111111; --inv-fg: #ffffff;
+    --bg: #fafaf9; --panel: #f3f3f1; --line: #e2e2df; --row: #ececea; --hover: #f1f1ef; --sel: #e9e9e6;
+    --text: #27272a; --dim: #5f5f66; --faint: #8b8b92; --code: #f4f4f2; --fail: #b93a32; --ok: #2f7a4d; --warn: #a16207;
+    --accent: #27272a; --chip: #ececea;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0b0b0b; --panel: #121212; --line: #262626; --row: #151515; --sel: #1d1d1d;
-      --text: #ececec; --dim: #7a7a7a; --code: #0f0f0f; --fail: #ff6159;
-      --inv-bg: #ececec; --inv-fg: #0b0b0b;
+      --bg: #1c1c1f; --panel: #232327; --line: #34343a; --row: #2a2a2f; --hover: #232328; --sel: #2c2c32;
+      --text: #e3e3e6; --dim: #a6a6ae; --faint: #7c7c85; --code: #202024; --fail: #e0857e; --ok: #7fb894; --warn: #d4a663;
+      --accent: #e3e3e6; --chip: #2c2c32;
     }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
   body { display: flex; flex-direction: column; }
-  a { color: inherit; }
-  button { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line);
-           border-radius: 4px; padding: 1px 8px; cursor: pointer; }
-  button:hover { border-color: var(--text); }
-  button:disabled { opacity: .35; cursor: default; border-color: var(--line); }
-  kbd { font: inherit; font-weight: 700; }
-  .dim { color: var(--dim); } .fail { color: var(--fail); }
+  a { color: inherit; text-underline-offset: 2px; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+  button { font: 500 13px/1.4 var(--sans); color: var(--text); background: var(--bg); border: 1px solid var(--line);
+           border-radius: 6px; padding: 3px 11px; cursor: pointer; }
+  button:hover { border-color: var(--faint); background: var(--hover); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button:disabled { opacity: .4; cursor: default; border-color: var(--line); background: transparent; }
+  kbd { font: 500 11.5px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+        padding: 0 5px; background: var(--panel); color: var(--text); }
+  .dim { color: var(--dim); } .faint { color: var(--faint); } .fail { color: var(--fail); } .ok { color: var(--ok); } .warn { color: var(--warn); }
 
-  header { display: flex; gap: 20px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line);
+  header { display: flex; gap: 18px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line);
            white-space: nowrap; overflow-x: auto; }
-  .host { background: var(--inv-bg); color: var(--inv-fg); font-weight: 700; padding: 0 8px; border-radius: 3px; }
+  .host { background: var(--chip); font-weight: 600; padding: 2px 10px; border-radius: 6px; }
   .spacer { flex: 1; }
-  .mode { border: 1px dashed var(--line); border-radius: 3px; padding: 0 6px; color: var(--dim); }
+  .mode { border: 1px dashed var(--line); border-radius: 6px; padding: 1px 8px; color: var(--dim); font-size: 13px; }
+  #clock { font-variant-numeric: tabular-nums; }
 
-  nav { display: flex; gap: 4px; align-items: flex-end; padding: 0 16px; border-bottom: 1px solid var(--line); }
-  nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 10px 6px; color: var(--dim); }
-  nav button.on { color: var(--text); border-bottom-color: var(--text); font-weight: 700; }
-  nav .filters { margin-left: auto; display: flex; gap: 2px; padding-bottom: 5px; }
-  nav .filters button { border: 1px solid transparent; border-radius: 3px; padding: 0 7px; font-size: 12px; }
-  nav .filters button.on { border-color: var(--line); color: var(--text); font-weight: 400; }
+  nav { display: flex; gap: 6px; align-items: flex-end; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 10px 8px;
+               color: var(--dim); background: transparent; font-size: 14px; }
+  nav button:hover { background: transparent; color: var(--text); }
+  nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  nav .filters { margin-left: auto; display: flex; gap: 4px; padding-bottom: 7px; }
+  nav .filters button { border: 1px solid transparent; border-radius: 6px; padding: 2px 10px; font-size: 13px; }
+  nav .filters button.on { border-color: var(--line); background: var(--panel); color: var(--text); font-weight: 500; }
 
   main { flex: 1; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
   .tablewrap { overflow: auto; max-height: 48vh; border-bottom: 1px solid var(--line); }
   table { width: 100%; border-collapse: collapse; }
-  th { position: sticky; top: 0; background: var(--bg); text-align: left; font-weight: 400; color: var(--dim);
-       padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-  td { padding: 6px 12px; border-bottom: 1px solid var(--row); white-space: nowrap; vertical-align: middle; }
+  th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 500; color: var(--dim);
+       padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--row); white-space: nowrap; vertical-align: top; }
+  th:first-child, td:first-child { padding-left: 20px; padding-right: 0; width: 1%; }
   tr.job { cursor: pointer; }
-  tr.job:hover td { background: var(--row); }
+  tr.job:hover td { background: var(--hover); }
   tr.job.sel td { background: var(--sel); }
-  tr.job.sel td:first-child { box-shadow: inset 2px 0 0 var(--text); }
-  tr.off .name { text-decoration: line-through; color: var(--dim); }
-  .name { font-weight: 700; }
-  .sub { color: var(--dim); font-size: 11px; }
-  .dot { display: inline-block; width: 1ch; text-align: center; }
+  tr.job.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  tr.off td:not(:last-child) { opacity: .5; }
+  .name { font-weight: 600; }
+  td.clip { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; }
+  td.clip .name { white-space: nowrap; }
+  .sub { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  td .mono { font-size: 13px; }
+  .dot { display: inline-block; width: 1.2em; text-align: center; }
   .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .hist { display: inline-flex; gap: 2px; vertical-align: middle; }
-  .hist i { width: 4px; height: 13px; border-radius: 1px; background: var(--text); opacity: .75; }
-  .hist i.fail { background: var(--fail); opacity: 1; } .hist i.skipped { background: var(--dim); opacity: .5; }
+  .hist { display: inline-flex; gap: 2px; vertical-align: middle; padding-top: 3px; }
+  .hist i { width: 5px; height: 14px; border-radius: 2px; background: var(--ok); opacity: .6; cursor: pointer; }
+  .hist i.fail { background: var(--fail); opacity: .9; } .hist i.skipped { background: var(--faint); opacity: .35; }
+  .hist i:hover { opacity: 1; } .hist i.on { opacity: 1; box-shadow: 0 0 0 1.5px var(--text); }
+
+  .runs { display: flex; flex-direction: column; gap: 6px; }
+  .runhead { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .runhead button { padding: 1px 9px; font-size: 12.5px; }
+  .strip { position: relative; display: flex; align-items: stretch; gap: 3px; height: 62px; padding: 20px 10px 6px;
+           overflow-x: auto; overflow-y: hidden; background: var(--panel); border-radius: 8px; cursor: pointer;
+           user-select: none; -webkit-user-select: none; touch-action: pan-y; scrollbar-width: thin; }
+  .strip i { flex: 0 0 9px; display: flex; align-items: flex-end; }
+  .strip i::after { content: ""; width: 100%; height: var(--h); border-radius: 2px; background: var(--ok); opacity: .55; }
+  .strip i.fail::after { background: var(--fail); opacity: .8; }
+  .strip i.skipped::after { background: var(--faint); opacity: .35; }
+  .strip i.running::after { opacity: 1; animation: pulse 1.2s ease-in-out infinite alternate; }
+  @keyframes pulse { from { opacity: .35; } }
+  .strip i:hover::after { opacity: 1; }
+  .strip i.on::after { opacity: 1; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--text); }
+  .strip .day { flex: 0 0 1px; background: var(--line); position: relative; margin: 0 5px; }
+  .strip .day em { position: absolute; top: -17px; left: -2px; font: 11.5px var(--sans); color: var(--faint); white-space: nowrap; }
+  .runmeta { font-size: 13px; color: var(--dim); min-height: 1.55em; }
+  .runmeta b { color: var(--text); font-weight: 600; }
   .actions { display: flex; gap: 6px; }
 
-  .detail { display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; gap: 6px; }
-  .cmd { word-break: break-all; }
-  .cmd::before { content: "$ "; color: var(--dim); }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0 14px; }
+  .detail { display: flex; flex-direction: column; min-height: 0; padding: 16px 20px; gap: 10px; }
+  .detail .title { font-size: 15px; }
+  .cmd { font: 12.5px/1.6 var(--mono); word-break: break-all; background: var(--panel); border-radius: 6px; padding: 7px 12px; }
+  .cmd::before { content: "$ "; color: var(--faint); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; }
   .kv span:nth-child(odd) { color: var(--dim); }
-  .banner { border-left: 2px solid var(--fail); color: var(--fail); padding: 2px 10px; }
-  .banner.hint { border-left-color: var(--dim); color: var(--dim); }
-  .logbar { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 4px; }
-  pre.log { flex: 1; margin: 0; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 4px;
-            padding: 10px 12px; font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; min-height: 120px; }
+  .kv span:nth-child(even) { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+  .banner { border-left: 3px solid var(--fail); color: var(--fail); background: var(--panel);
+            padding: 6px 12px; border-radius: 0 6px 6px 0; }
+  .banner.hint { border-left-color: var(--faint); color: var(--dim); }
+  .logbar { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); font-size: 12.5px; margin-top: 4px; }
+  #logfile { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  pre.log { flex: 1; margin: 0; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+            padding: 14px 16px; font: 12.5px/1.7 var(--mono); white-space: pre-wrap; word-break: break-word; min-height: 120px; }
   pre.log .err { color: var(--fail); }
 
-  footer { padding: 6px 16px; border-top: 1px solid var(--line); color: var(--dim); display: flex; gap: 18px; flex-wrap: wrap; }
+  footer { padding: 8px 20px; border-top: 1px solid var(--line); color: var(--dim); display: flex; gap: 20px;
+           flex-wrap: wrap; font-size: 12.5px; }
 
   dialog { width: min(1000px, 94vw); background: var(--bg); color: var(--text); border: 1px solid var(--line);
-           border-radius: 8px; padding: 0; }
+           border-radius: 10px; padding: 0; }
   dialog::backdrop { background: rgba(0,0,0,.45); }
-  dialog .head { padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
-  dialog textarea { width: 100%; height: 55vh; background: var(--code); color: var(--text); border: 0; padding: 12px 14px;
-                    font: 13px/1.5 var(--mono); resize: vertical; outline: none; }
-  dialog .foot { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+  dialog .head { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+  dialog .head > span:last-child { font-size: 12.5px; }
+  dialog textarea { width: 100%; height: 55vh; background: var(--code); color: var(--text); border: 0; padding: 14px 16px;
+                    font: 13px/1.65 var(--mono); resize: vertical; outline: none; }
+  dialog .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
   #edit-err { color: var(--fail); white-space: pre-wrap; flex: 1; }
 
-  #toast { position: fixed; right: 16px; bottom: 44px; display: flex; flex-direction: column; gap: 6px; }
-  #toast div { background: var(--inv-bg); color: var(--inv-fg); padding: 6px 12px; border-radius: 4px; }
+  #toast { position: fixed; right: 20px; bottom: 52px; display: flex; flex-direction: column; gap: 6px; }
+  #toast div { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px;
+               box-shadow: 0 4px 16px rgba(0,0,0,.18); }
   #toast div.error { background: var(--fail); color: #fff; }
-  .empty { padding: 24px 16px; color: var(--dim); }
+  .empty { padding: 28px 20px; color: var(--dim); }
 
-  #setup { padding: 32px 24px; max-width: 760px; }
-  #setup h2 { font-size: 15px; margin: 0 0 12px; }
-  #setup ol { padding-left: 20px; } #setup li { margin: 10px 0; }
-  #setup code { display: block; background: var(--code); border: 1px solid var(--line); border-radius: 4px;
-                padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+  #setup { padding: 36px 28px; max-width: 760px; line-height: 1.65; }
+  #setup h2 { font-size: 17px; margin: 0 0 12px; }
+  #setup ol { padding-left: 20px; } #setup li { margin: 12px 0; }
+  #setup code { display: block; background: var(--code); border: 1px solid var(--line); border-radius: 6px;
+                padding: 9px 12px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -147,7 +187,7 @@
 </main>
 
 <footer>
-  <span><kbd>1</kbd>/<kbd>2</kbd> cron/launchd</span><span><kbd>j</kbd>/<kbd>k</kbd> select</span><span><kbd>r</kbd> run now</span>
+  <span><kbd>1</kbd>/<kbd>2</kbd> cron/launchd</span><span><kbd>j</kbd>/<kbd>k</kbd> select</span><span><kbd>←</kbd>/<kbd>→</kbd> past runs</span><span><kbd>r</kbd> run now</span>
   <span><kbd>space</kbd> enable/disable</span><span><kbd>w</kbd> monitor</span><span><kbd>e</kbd> edit crontab</span>
 </footer>
 
@@ -172,6 +212,9 @@ try { tab = localStorage.getItem("mcm.tab") || "cron"; } catch { /* storage unav
 let filter = "all";
 let sel = { cron: null, launchd: null };
 let detailKey = null, logSig = null, follow = true;
+let runs = {}, runsSig = {};   // cron job name -> all recorded runs (/api/runs), and what they were fetched for
+let selRun = {};               // cron job name -> start of the past run being viewed (absent: the latest)
+let logTimer = null, reveal = false;  // reveal: scroll the selected run into view once
 
 const can = (a) => (state.allowed || []).includes(a);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -180,6 +223,7 @@ function ago(ts) {
   for (const [u, n] of [["d", 86400], ["h", 3600], ["m", 60]]) if (s >= n) return `${Math.floor(s / n)}${u} ago`;
   return `${s}s ago`;
 }
+const when = (ts) => new Date(ts * 1000).toLocaleString("sv-SE").slice(0, 16);
 const dur = (s) => (s = Math.floor(s), s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`);
 
 function toast(msg, error = false) {
@@ -213,10 +257,10 @@ function cronDot(j) {
   if (!j.monitored) return '<span class="dot dim">?</span>';
   if (!j.last) return '<span class="dot dim">·</span>';
   if (j.last.status === "fail") return '<span class="dot fail">●</span>';
-  return j.last.status === "skipped" ? '<span class="dot dim">●</span>' : '<span class="dot">●</span>';
+  return j.last.status === "skipped" ? '<span class="dot faint">●</span>' : '<span class="dot ok">●</span>';
 }
 function cronLast(j) {
-  if (j.running_since) return "running";
+  if (j.running_since) return '<span class="ok">running</span>';
   if (!j.monitored) return '<span class="dim">not monitored</span>';
   if (!j.last) return '<span class="dim">never</span>';
   if (j.last.status === "fail") return `<span class="fail">${ago(j.last.end)} · exit ${j.last.exit}</span>`;
@@ -232,11 +276,12 @@ const cronRow = (j) => `
   <tr class="job ${j.name === sel.cron ? "sel" : ""} ${j.enabled ? "" : "off"}" data-key="${esc(j.name)}">
     <td>${cronDot(j)}</td>
     <td class="name">${esc(j.name)}</td>
-    <td>${esc(j.schedule)}<div class="sub">${esc(j.desc)}</div></td>
+    <td><span class="mono">${esc(j.schedule)}</span><div class="sub">${esc(j.desc)}</div></td>
     <td>${esc(j.next)}</td>
     <td>${cronLast(j)}</td>
     <td>${cronTook(j)}</td>
-    <td><span class="hist">${j.history.map((h) => `<i class="${h.status}" title="${esc(h.reason || h.status)}"></i>`).join("")}</span></td>
+    <td><span class="hist">${j.history.map((h) => `<i class="${h.status} ${selRun[j.name] === h.start ? "on" : ""}" data-run="${h.start}"
+      title="${esc(`${when(h.start)} · ${h.reason || h.status}`)}"></i>`).join("")}</span></td>
     <td><span class="actions">
       ${can("run") ? `<button data-act="run" ${j.running_since ? "disabled" : ""} title="r">run</button>` : ""}
       ${can("toggle") ? `<button data-act="toggle" title="space">${j.enabled ? "disable" : "enable"}</button>` : ""}
@@ -249,7 +294,7 @@ const cronRow = (j) => `
 function ldState(j) {
   if (!j.readable) return '<span class="dim">unknown</span>';
   if (j.disabled) return '<span class="dim">disabled</span>';
-  if (j.pid) return `running <span class="dim">· pid ${j.pid}</span>`;
+  if (j.pid) return `<span class="ok">running</span> <span class="dim">· pid ${j.pid}</span>`;
   if (j.kind === "daemon") return '<span class="dim">not running</span>';
   if (!j.loaded) return '<span class="dim">not loaded</span>';
   if (j.last_exit) return `<span class="fail">idle · exit ${j.last_exit}</span>`;
@@ -257,8 +302,9 @@ function ldState(j) {
 }
 function ldDot(j) {
   if (j.warning) return '<span class="dot fail">!</span>';
+  if (j.note) return '<span class="dot faint">–</span>';
   if (j.disabled) return '<span class="dot dim">○</span>';
-  if (j.pid) return '<span class="dot">●</span>';
+  if (j.pid) return '<span class="dot ok">●</span>';
   if (j.loaded) return '<span class="dot dim">●</span>';
   return '<span class="dot dim">·</span>';
 }
@@ -266,7 +312,7 @@ const LD_HEAD = "<tr><th></th><th>label</th><th>where</th><th>trigger</th><th>ne
 const ldRow = (j) => `
   <tr class="job ${j.id === sel.launchd ? "sel" : ""} ${j.disabled ? "off" : ""}" data-key="${esc(j.id)}">
     <td>${ldDot(j)}</td>
-    <td><span class="name">${esc(j.label)}</span><div class="sub">${esc(j.developer)}</div></td>
+    <td class="clip" title="${esc(j.label)}"><span class="name">${esc(j.label)}</span><div class="sub">${j.note ? "no program" : esc(j.developer)}</div></td>
     <td>${j.scope}<div class="sub">${j.kind}</div></td>
     <td>${esc(j.trigger)}</td>
     <td>${esc(j.next || "")}</td>
@@ -291,14 +337,14 @@ const keyOf = (j) => (tab === "cron" ? j.name : j.id);
 function render() {
   const jobs = state.jobs;
   $("#host").textContent = state.host;
-  $("#cron").innerHTML = state.cron_up ? "● up" : '<span class="fail">● down</span>';
+  $("#cron").innerHTML = state.cron_up ? '<span class="ok">● up</span>' : '<span class="fail">● down</span>';
   const running = jobs.filter((j) => j.running_since).length;
   const failing = jobs.filter((j) => j.enabled && j.last?.status === "fail").length;
   const issues = (ld || []).filter((j) => j.warning).length;
   $("#summary").innerHTML = [running && `${running} running`, failing && `<span class="fail">${failing} failing</span>`]
-    .filter(Boolean).join(" · ") || "all good";
+    .filter(Boolean).join(" · ") || '<span class="ok">all good</span>';
   document.title = failing ? `✗ ${failing} failing · mac-cron-manager` : running ? "◐ mac-cron-manager" : "mac-cron-manager";
-  setFavicon(failing ? "#d92d20" : "#8a8a8a");
+  setFavicon(failing ? "#b93a32" : running ? "#2f7a4d" : "#8a8a8a");
 
   $("#mode").hidden = state.caller !== "remote";
   $("#mode").innerHTML = `hosted · limited · <a href="${state.local_url}">open locally</a> to edit`;
@@ -323,10 +369,11 @@ function renderDetail() {
   const d = $("#detail");
   const j = currentList().find((x) => keyOf(x) === sel[tab]);
   if (!j) { d.innerHTML = ""; detailKey = null; return; }
-  const key = tab + ":" + keyOf(j) + JSON.stringify(j.warning) + (j.monitored ?? "") + (j.disabled ?? j.enabled);
+  const key = tab + ":" + keyOf(j) + JSON.stringify(j.warning) + (j.note ?? "") + (j.monitored ?? "") + (j.disabled ?? j.enabled);
   if (key !== detailKey) {
     detailKey = key; logSig = null; follow = true;
     d.innerHTML = tab === "cron" ? cronDetail(j) : ldDetailHtml(j);
+    if ($("#strip")) wireStrip(j.name);
     $("#log")?.addEventListener("scroll", (e) => {
       const el = e.target;
       follow = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
@@ -337,9 +384,15 @@ function renderDetail() {
 
 function cronDetail(j) {
   return `
-    <div><span class="name">${esc(j.name)}</span> <span class="dim">· ${esc(j.desc)}${j.enabled ? "" : " · disabled"}</span></div>
+    <div class="title"><span class="name">${esc(j.name)}</span> <span class="dim">· ${esc(j.desc)}${j.enabled ? "" : " · disabled"}</span></div>
     <div class="cmd">${esc(j.command)}</div>
     ${j.warning ? `<div class="banner">${esc(j.warning)}</div>` : ""}
+    ${j.monitored ? `<div class="runs">
+      <div class="runhead"><span>Run history</span><span class="faint" id="runcount"></span><span class="spacer"></span>
+        <span class="faint">click or drag · <kbd>←</kbd> <kbd>→</kbd></span><button id="latest" hidden>back to latest</button></div>
+      <div class="strip" id="strip"></div>
+      <div class="runmeta" id="runmeta"></div>
+    </div>` : ""}
     ${j.monitored ? "" : `<div class="banner hint">Not monitored: ${can("wrap") ? "press <kbd>w</kbd> to wrap" : "open the local page to wrap"} it in cronmon to get status + logs.</div>`}
     <div class="logbar"><span id="logfile"></span><span id="logstate"></span></div>
     <pre class="log" id="log"></pre>`;
@@ -347,9 +400,10 @@ function cronDetail(j) {
 
 function ldDetailHtml(j) {
   return `
-    <div><span class="name">${esc(j.label)}</span> <span class="dim">· ${esc(j.developer)} · ${j.scope} ${j.kind}</span></div>
+    <div class="title"><span class="name">${esc(j.label)}</span> <span class="dim">· ${esc(j.developer)} · ${j.scope} ${j.kind}</span></div>
     <div class="cmd">${esc(j.command || "(no program)")}</div>
     ${j.warning ? `<div class="banner">${esc(j.warning)}</div>` : ""}
+    ${j.note ? `<div class="banner hint">${esc(j.note)}</div>` : ""}
     <div class="kv">
       <span>plist</span><span>${esc(j.plist)}</span>
       <span>trigger</span><span>${esc(j.trigger)}</span>
@@ -361,26 +415,146 @@ function ldDetailHtml(j) {
     <pre class="log" id="log"></pre>`;
 }
 
-function showLog(text, files) {
+function showLog(text, files, empty = "(no log)") {
   const log = $("#log");
   if (!log) return;
   const sig = files + text.length + text.slice(-200);
   if (sig === logSig) return;
   logSig = sig;
   log.innerHTML = text ? esc(text).replace(/^.*(error|fail|denied|not permitted|exception).*$/gim, '<span class="err">$&</span>')
-                       : '<span class="dim">(no log)</span>';
+                       : `<span class="dim">${esc(empty)}</span>`;
   if (follow) log.scrollTop = log.scrollHeight;
 }
 
 async function loadCronLog(j) {
   if (!j.monitored) { showLog("", ""); return; }
+  loadRuns(j);
+  const run = selRun[j.name];
   try {
-    const data = await api(`/api/log?name=${encodeURIComponent(j.name)}`);
-    if (tab !== "cron" || j.name !== sel.cron) return;
-    $("#logfile").textContent = data.file;
-    $("#logstate").textContent = j.running_since ? "● live" : "last run";
-    showLog(data.exists ? data.text : "", data.file);
+    const data = await api(`/api/log?name=${encodeURIComponent(j.name)}` + (run ? `&run=${run}` : ""));
+    if (tab !== "cron" || j.name !== sel.cron || selRun[j.name] !== run) return;
+    const r = run && runList(j).find((x) => x.start === run);
+    const empty = r?.status === "skipped" ? `(skipped${r.reason ? `: ${r.reason}` : ""}: nothing ran, so there is no output)`
+      : run ? "(this run's output wasn't kept: output is saved per run from now on, for the last 100 runs)" : "(no log)";
+    $("#logfile").textContent = data.exists ? data.file : "";
+    const real = runList(j).filter((x) => x.status !== "skipped").at(-1);  // skipped runs leave last.log alone
+    $("#logstate").innerHTML = run ? `run of ${esc(when(run))}` : j.running_since ? '<span class="ok">● live</span>'
+      : real ? `last run that did something · ${esc(when(real.start))}` : "last run";
+    showLog(data.exists ? data.text : "", data.file, empty);
   } catch { /* agent restarting; next poll retries */ }
+}
+
+// ---------------------------------------------------------------- run timeline
+
+function runList(j) {
+  const list = runs[j.name] || [];
+  return j.running_since ? [...list, { start: j.running_since, status: "running" }] : list;
+}
+
+async function loadRuns(j) {
+  const sig = `${j.last?.start}:${j.last?.end}:${j.running_since}`;
+  if (runsSig[j.name] !== sig) {
+    try { runs[j.name] = (await api(`/api/runs?name=${encodeURIComponent(j.name)}`)).runs; } catch { return; }
+    runsSig[j.name] = sig;
+  }
+  if (tab === "cron" && sel.cron === j.name) drawStrip(j);
+}
+
+function barHeight(r) {
+  if (r.status === "skipped") return 5;
+  if (r.status === "running") return 30;
+  return Math.round(Math.min(30, 6 + 5 * Math.log2(1 + (r.end - r.start) / 5)));  // longer runs, taller bars
+}
+
+function drawStrip(j) {
+  const strip = $("#strip");
+  if (!strip) return;
+  const list = runList(j);
+  const sig = `${list.length}:${list.at(-1)?.start}:${list.at(-1)?.status}`;
+  if (strip.dataset.sig !== sig) {
+    const atEnd = !strip.dataset.sig || strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 4;
+    let html = "", day = "";
+    for (const r of list) {
+      const d = new Date(r.start * 1000);
+      if (d.toDateString() !== day) {
+        day = d.toDateString();
+        html += `<span class="day"><em>${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</em></span>`;
+      }
+      html += `<i class="${r.status}" data-run="${r.start}" style="--h:${barHeight(r)}px"></i>`;
+    }
+    strip.innerHTML = html || '<span class="faint">no runs yet</span>';
+    strip.dataset.sig = sig;
+    if (atEnd) strip.scrollLeft = strip.scrollWidth;
+    $("#runcount").textContent = list.length ? `· ${list.length} runs` : "";
+  }
+  markRun(j);
+}
+
+function markRun(j) {
+  const strip = $("#strip");
+  const list = runList(j);
+  const on = selRun[j.name] ?? list.at(-1)?.start;
+  document.querySelectorAll(`#rows tr[data-key="${CSS.escape(j.name)}"] .hist i`)
+    .forEach((i) => i.classList.toggle("on", Number(i.dataset.run) === selRun[j.name]));
+  if (!strip) return;
+  strip.querySelectorAll("i").forEach((i) => i.classList.toggle("on", Number(i.dataset.run) === on));
+  const el = strip.querySelector("i.on");
+  if (el && reveal) {
+    reveal = false;
+    if (el.offsetLeft < strip.scrollLeft + 10) strip.scrollLeft = el.offsetLeft - 10;
+    else if (el.offsetLeft > strip.scrollLeft + strip.clientWidth - 24) strip.scrollLeft = el.offsetLeft - strip.clientWidth + 24;
+  }
+  $("#latest").hidden = !(j.name in selRun);
+  const i = list.findIndex((r) => r.start === on), r = list[i];
+  if (!r) { $("#runmeta").innerHTML = ""; return; }
+  const pos = `<span class="faint">· run ${i + 1} of ${list.length}${j.name in selRun ? "" : " (latest)"}</span>`;
+  const head = {
+    ok: `<span class="ok">● ok</span> · took ${dur(r.end - r.start)} · exit 0`,
+    fail: `<span class="fail">● failed</span> · took ${dur(r.end - r.start)} · exit ${r.exit}`,
+    skipped: `<span class="faint">● skipped</span>${r.reason ? ` · ${esc(r.reason)}` : ""}`,
+    running: `<span class="ok">● running</span> · ${dur(Date.now() / 1000 - r.start)} so far`,
+  }[r.status] || esc(r.status);
+  $("#runmeta").innerHTML = `<b>${esc(when(r.start))}</b> <span class="faint">(${ago(r.start)})</span> · ${head} ${pos}`;
+}
+
+function selectRun(name, start) {
+  const j = state.jobs.find((x) => x.name === name);
+  if (!j) return;
+  const prev = selRun[name];
+  if (start == null || start === runList(j).at(-1)?.start) delete selRun[name]; else selRun[name] = start;
+  if (selRun[name] === prev) return;
+  reveal = true;
+  markRun(j);
+  logSig = null; follow = true;
+  clearTimeout(logTimer);  // while scrubbing, fetch only the run the pointer settles on
+  logTimer = setTimeout(() => sel.cron === name && tab === "cron" && loadCronLog(j), 90);
+}
+
+function stepRun(j, d) {
+  const list = runList(j);
+  if (!list.length) return;
+  const i = list.findIndex((r) => r.start === (selRun[j.name] ?? list.at(-1).start));
+  selectRun(j.name, list[Math.min(list.length - 1, Math.max(0, (i < 0 ? list.length - 1 : i) + d))].start);
+}
+
+function wireStrip(name) {
+  const strip = $("#strip");
+  let drag = false;
+  const pick = (e) => {
+    const r = strip.getBoundingClientRect();
+    const x = Math.min(r.right - 2, Math.max(r.left + 2, e.clientX));
+    const bar = document.elementFromPoint(x, r.top + r.height / 2)?.closest("#strip [data-run]");
+    if (bar) selectRun(name, Number(bar.dataset.run));
+    if (drag && e.clientX < r.left + 24) strip.scrollLeft -= 12;        // drag past an edge to keep going
+    else if (drag && e.clientX > r.right - 24) strip.scrollLeft += 12;
+  };
+  strip.addEventListener("pointerdown", (e) => { drag = true; strip.setPointerCapture(e.pointerId); pick(e); });
+  strip.addEventListener("pointermove", (e) => { if (drag) pick(e); });
+  for (const ev of ["pointerup", "pointercancel"]) strip.addEventListener(ev, () => { drag = false; });
+  strip.addEventListener("wheel", (e) => {  // a plain mouse wheel scrolls the timeline sideways
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { strip.scrollLeft += e.deltaY; e.preventDefault(); }
+  }, { passive: false });
+  $("#latest").onclick = () => selectRun(name, null);
 }
 
 async function loadLdDetail(j) {
@@ -488,6 +662,13 @@ $("#rows").addEventListener("click", (e) => {
   if (!row) return;
   const btn = e.target.closest("button[data-act]");
   if (btn) return act(btn.dataset.act, row.dataset.key);
+  const bar = e.target.closest(".hist i[data-run]");
+  if (bar && tab === "cron") {
+    const j = state.jobs.find((x) => x.name === row.dataset.key), start = Number(bar.dataset.run);
+    if (!j.running_since && j.history.at(-1)?.start === start) delete selRun[j.name]; else selRun[j.name] = start;
+    sel.cron = j.name; logSig = null; follow = true; reveal = true;
+    return render();
+  }
   if (sel[tab] !== row.dataset.key) { sel[tab] = row.dataset.key; render(); }
 });
 document.addEventListener("keydown", (e) => {
@@ -501,6 +682,9 @@ document.addEventListener("keydown", (e) => {
     case "2": setTab("launchd"); break;
     case "j": case "ArrowDown": e.preventDefault(); move(1); break;
     case "k": case "ArrowUp": e.preventDefault(); move(-1); break;
+    case "ArrowLeft": case "h": if (tab === "cron" && j?.monitored) { e.preventDefault(); stepRun(j, -1); } break;
+    case "ArrowRight": case "l": if (tab === "cron" && j?.monitored) { e.preventDefault(); stepRun(j, 1); } break;
+    case "Escape": if (tab === "cron" && j && j.name in selRun) selectRun(j.name, null); break;
     case "r": act("run", sel[tab]); break;
     case " ": e.preventDefault(); act("toggle", sel[tab]); break;
     case "w": if (tab === "cron" && can("wrap") && j && !j.monitored) act("wrap", sel[tab]); break;

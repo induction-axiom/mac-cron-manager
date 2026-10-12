@@ -38,7 +38,7 @@ REMOTE_ORIGINS = {o.strip().rstrip("/") for o in
 INDEX = core.HERE / "static" / "index.html"
 
 # Which endpoints each kind of caller may use.
-REMOTE_ROUTES = {("GET", "/api/state"), ("GET", "/api/log"), ("POST", "/api/run"), ("POST", "/api/toggle"),
+REMOTE_ROUTES = {("GET", "/api/state"), ("GET", "/api/log"), ("GET", "/api/runs"), ("POST", "/api/run"), ("POST", "/api/toggle"),
                  ("GET", "/api/launchd"), ("GET", "/api/launchd/detail")}
 LOCAL_ROUTES = REMOTE_ROUTES | {("GET", "/"), ("GET", "/api/crontab"), ("POST", "/api/crontab"), ("POST", "/api/wrap"),
                                 ("POST", "/api/launchd/run"), ("POST", "/api/launchd/toggle")}
@@ -51,7 +51,7 @@ def job_json(job: core.Job) -> dict:
         "schedule": job.schedule, "desc": core.describe(job.schedule), "command": job.command,
         "enabled": job.enabled, "monitored": job.monitored, "running_since": job.running_since,
         "next": next_label, "next_ts": next_ts, "last": job.last,
-        "history": [{"status": r["status"], "reason": r.get("reason", "")} for r in job.runs],
+        "history": [{"start": r["start"], "status": r["status"], "reason": r.get("reason", "")} for r in job.runs],
         "warning": job.warning(),
     }
 
@@ -153,9 +153,17 @@ class Handler(BaseHTTPRequestHandler):
             job = next((j for j in core.load_jobs() if j.name == name), None)
             if not job:
                 return self.reply(404, {"error": "no such job"})
-            f = job.log_file
+            run = parse_qs(url.query).get("run", [""])[0]
+            f = job.run_log(int(run)) if run.isdigit() else job.log_file
             text = "\n".join(f.read_text(errors="replace").splitlines()[-500:]) if f.exists() else ""
             return self.reply(200, {"file": str(f), "text": text, "exists": f.exists()})
+        if url.path == "/api/runs":
+            name = parse_qs(url.query).get("name", [""])[0]
+            job = next((j for j in core.load_jobs() if j.name == name), None)
+            if not job:
+                return self.reply(404, {"error": "no such job"})
+            runs = [{**r, "log": job.run_log(r["start"]).exists()} for r in job.all_runs()]
+            return self.reply(200, {"runs": runs})
         if url.path == "/api/crontab":
             return self.reply(200, {"text": "\n".join(core.read_crontab())})
         if url.path == "/api/launchd":

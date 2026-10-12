@@ -52,6 +52,14 @@ class Job:
     def log_file(self) -> Path:
         return self.dir / ("current.log" if self.running_since else "last.log")
 
+    def run_log(self, start: int) -> Path:
+        """Output of the run that started at `start` (kept for the last MCM_KEEP_LOGS runs)."""
+        return self.dir / "logs" / f"{int(start)}.log"
+
+    def all_runs(self) -> list:
+        f = self.dir / "runs.jsonl"
+        return [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+
     def warning(self) -> str:
         f = self.log_file
         if self.monitored and f.exists() and "Operation not permitted" in f.read_text(errors="replace"):

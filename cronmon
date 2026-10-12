@@ -72,6 +72,10 @@ wait "$pid" 2>/dev/null  # (silences bash's "Terminated" job notice)
 code=$?
 
 mv -f "$dir/current.log" "$dir/last.log"
+# Keep each run's output (named by its start time) so past runs can be inspected.
+mkdir -p "$dir/logs"
+cp -f "$dir/last.log" "$dir/logs/$start.log"
+ls -1t "$dir/logs" | tail -n +"$(( ${MCM_KEEP_LOGS:-100} + 1 ))" | while read -r f; do rm -f "$dir/logs/$f"; done
 if [ -n "$stopped" ]; then
   record "$start" "$(date +%s)" "$code" skipped "$stopped"
   code=0
