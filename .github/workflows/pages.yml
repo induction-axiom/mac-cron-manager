@@ -22,7 +22,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: echo "{\"version\": \"$(sed -nE 's/^VERSION = "([^"]+)".*/\1/p' web.py)\"}" > site/version.json
+      - name: Publish the version that dashboards compare themselves against
+        run: |
+          version=$(sed -nE 's/^VERSION = "([^"]+)".*/\1/p' web.py)
+          echo "{\"version\": \"$version\"}" > site/version.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
