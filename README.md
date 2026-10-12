@@ -1,91 +1,62 @@
 # mac-cron-manager
 
-A dashboard for the scheduled and background jobs on your Mac.
+A small dashboard for the scheduled jobs on your Mac: see whether each cron job
+actually ran, read the output of any past run, and spot the background agents
+that uninstalled apps left behind.
 
-- **cron**: every job with its next run, last result and live output, plus a run timeline you can click or drag through to read any past run's output; run / enable / disable / edit.
-- **launchd**: the non-Apple agents and daemons apps have installed: who made each one, what triggers it,
-  whether it's running, its log, and leftovers from uninstalled apps (program missing, empty plists).
-  Agents can be started or disabled for your user; system daemons are view-only (they run as root).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/cron-dark.png">
+  <img alt="The cron tab: four jobs with their schedules, next and last runs and run history; one job's last run failed. Below, a run timeline for photo-backup and the output of its latest run" src="docs/images/cron-light.png" width="680">
+</picture>
 
-Calm, readable interface that follows the system light/dark setting.
+- **Did it run?** Put `cronmon` in front of a job and every run is recorded:
+  when it started, how long it took, its exit code and its output. Click or
+  drag along the timeline to read any earlier run.
+- **What else starts by itself?** The launchd tab lists the agents and daemons
+  your apps have installed, and flags the ones whose app is gone.
+- **Stays on your Mac.** A small local agent serves the dashboard at
+  `127.0.0.1:7878`. Nothing is sent anywhere.
 
-**Open it:** http://127.0.0.1:7878 once the agent is installed. https://induction-axiom.github.io/mac-cron-manager/
-takes you there too, or shows how to install it if your Mac doesn't have it yet.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/launchd-dark.png">
+  <img alt="The launchd tab: agents and daemons with who made them, what triggers them and their state; two are flagged because their app was uninstalled" src="docs/images/launchd-light.png" width="680">
+</picture>
 
-cron itself doesn't remember whether a job worked. `cronmon` fills that gap: put
-it in front of a job's command and it records start/end time, exit code and output.
-
-```
-*/30 * * * * ~/mac-cron-manager/cronmon photo-sync /path/to/run.sh
-```
-
-## Skip phone hotspots
-
-Big transfers on a phone's data plan are rarely what you want. Add `--unmetered`:
-
-```
-*/30 * * * * ~/mac-cron-manager/cronmon --unmetered photo-sync /path/to/run.sh
-```
-
-The run is skipped on a phone hotspot, and if the Mac switches to one while the job is
-running, the whole job (including e.g. an rsync it started) is stopped within ~20 s.
-Both show up as a grey "skipped" with the reason. `netcheck` does the detection:
-iPhone Personal Hotspot (172.20.10.x), Android hotspots (DHCP marks them
-`ANDROID_METERED`), iPhone USB / Bluetooth tethering. macOS hides the Wi-Fi name from
-background jobs, so to go further and run only on networks you trust, trust them by
-their router: `netcheck --trust` while on the network (`netcheck --list` shows them).
+Screenshots use made-up data.
 
 ## Install
 
-Requires macOS and Python 3.10+.
+Requires macOS and Python 3.10 or later.
 
-```bash
+```sh
 git clone https://github.com/induction-axiom/mac-cron-manager ~/mac-cron-manager
 ~/mac-cron-manager/install.sh
 ```
 
-`install.sh` creates a virtualenv and registers a launchd agent (`local.mac-cron-manager`)
-that runs from login onwards and restarts if it dies. Then open http://127.0.0.1:7878.
+Then open http://127.0.0.1:7878. It starts at login from now on.
 
-- Different port: `MCM_PORT=8080 ./install.sh` (the hosted page takes `?agent=http://127.0.0.1:8080`)
-- Remove: `./install.sh --uninstall`
+## Use
 
-## How it works
+Press **monitor** next to a job, or add `cronmon` and a name in front of its
+command yourself:
 
-The **agent** (`web.py`) is a small HTTP server that listens on `127.0.0.1` only and runs
-as your user. It reads `crontab -l`, the job records `cronmon` writes and the launchd
-folders, and serves the dashboard page together with its JSON API.
+```
+*/30 * * * * ~/mac-cron-manager/cronmon photo-backup ~/jobs/photo-backup.sh
+```
 
-Because it can edit the crontab and run commands, only the page it serves itself may use
-it: requests need a `Host` of 127.0.0.1/localhost (against DNS rebinding) and no `Origin`
-or the agent's own, and POSTs a custom header that cross-site forms can't send.
+Add `--unmetered` after `cronmon` to skip a job while your Mac is on a phone
+hotspot.
 
-The hosted page (`site/`, on GitHub Pages) holds no data and has no access to your jobs.
-It may only call `GET /api/ping` to see whether an agent is running, then sends the browser
-to http://127.0.0.1:7878. Its origin is set with `MCM_HOSTED_ORIGINS` (comma-separated; empty
-to turn the ping off).
+A few things about cron on macOS:
 
-Every crontab change is backed up to `~/.local/state/mac-cron-manager/backups/` first.
-Disabled jobs stay in the crontab as `#off# <line>`.
+- Jobs that read `~/Pictures`, `~/Documents` or `~/Desktop` need **Full Disk
+  Access** for `/usr/sbin/cron` (System Settings → Privacy & Security).
+- Jobs don't run while your Mac is asleep, and aren't caught up afterwards.
 
-| File | Role |
-|---|---|
-| `cronmon` | Wrapper used in crontab lines; writes `~/.local/state/mac-cron-manager/jobs/<name>/` (`runs.jsonl`, `last.log`, `current.log`, `running`, and `logs/<start>.log` for the last `MCM_KEEP_LOGS` runs, default 100). Skips a run if the previous one is still going. |
-| `web.py` | The agent (Python standard library HTTP server). |
-| `static/index.html` | The dashboard page, served by the agent. |
-| `site/index.html` | The hosted landing page: finds the agent and opens it, or explains the install. |
-| `core.py` | Reads/writes the crontab and job state. |
-| `netcheck` | Tells whether the current network is a phone hotspot / untrusted (used by `cronmon --unmetered`). |
-| `launchd.py` | Scans `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`; checks code signatures. |
-
-## macOS notes
-
-- cron needs **Full Disk Access** (System Settings → Privacy & Security → add `/usr/sbin/cron`)
-  for jobs that touch protected folders like `~/Pictures`, `~/Documents` or `~/Desktop`.
-  The dashboard flags jobs that failed for this reason.
-- cron skips runs while the Mac is asleep; it doesn't catch up afterwards.
-- Keyboard: `1`/`2` cron/launchd, `j/k` select, `←/→` past runs, `r` run, `space` enable/disable, `w` monitor, `e` edit crontab.
+To update, `git pull` and run `install.sh` again. To remove it, run
+`install.sh --uninstall`.
 
 ## License
 
-[AGPL-3.0](LICENSE). Copyright (c) 2026 Jong Luo.
+Copyright (C) 2026 Jong Luo. Licensed under the GNU Affero General Public
+License v3.0 (AGPL-3.0). See [LICENSE](LICENSE).
