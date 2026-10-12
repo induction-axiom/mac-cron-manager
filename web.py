@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 import core
 import launchd
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"  # the Pages workflow publishes it as version.json for the update check
 PORT = int(os.environ.get("MCM_PORT", "7878"))
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 LOCAL_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
@@ -106,6 +106,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, INDEX.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
             return self.reply(200, {
+                "version": VERSION,
+                "update": f"git -C {core.HERE} pull && {core.HERE}/install.sh",
                 "host": socket.gethostname().split(".")[0],
                 "cron_up": core.cron_up(),
                 "jobs": [job_json(j) for j in core.load_jobs()],

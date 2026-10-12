@@ -1,10 +1,11 @@
 # Publish the landing page (site/) to GitHub Pages. It holds no data: it looks for the
 # agent on the visitor's Mac (127.0.0.1) and opens it, or explains how to install it.
+# version.json, from web.py's VERSION, is what dashboards compare themselves against.
 name: pages
 on:
   push:
     branches: [main]
-    paths: [site/**, .github/workflows/pages.yml]
+    paths: [site/**, web.py, .github/workflows/pages.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,6 +22,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - run: echo "{\"version\": \"$(sed -nE 's/^VERSION = "([^"]+)".*/\1/p' web.py)\"}" > site/version.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

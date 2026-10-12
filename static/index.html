@@ -146,6 +146,10 @@
   dialog .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
   #edit-err { color: var(--fail); white-space: pre-wrap; flex: 1; }
 
+  #update { display: flex; align-items: center; gap: 10px; padding: 8px 20px; background: var(--sel);
+            border-bottom: 1px solid var(--line); font-size: 13px; }
+  #update code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   #toast { position: fixed; right: 20px; bottom: 52px; display: flex; flex-direction: column; gap: 6px; }
   #toast div { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px;
                box-shadow: 0 4px 16px rgb(0 0 0 / .18); }
@@ -163,6 +167,11 @@
   <span id="clock" class="dim"></span>
   <button id="edit-btn" title="e">edit crontab</button>
 </header>
+<div id="update" hidden>
+  <span><b id="update-version"></b> is out. To update, run:</span>
+  <code id="update-cmd"></code>
+  <button id="update-copy">copy</button><button id="update-later">later</button>
+</div>
 
 <nav id="tabs">
   <button data-tab="cron" class="on">cron <span id="n-cron" class="dim"></span></button>
@@ -592,6 +601,35 @@ async function refresh() {
   }
 }
 
+// ---------------------------------------------------------------- update check
+
+const LATEST = "https://induction-axiom.github.io/mac-cron-manager/version.json";
+const newer = (a, b) => {  // is version a newer than b?
+  const [x, y] = [a, b].map((v) => v.split(".").map(Number));
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+
+async function checkForUpdate() {
+  if (!state.version) return;
+  try {
+    const { version } = await (await fetch(LATEST, { cache: "no-store" })).json();
+    let later = null;
+    try { later = localStorage.getItem("mcm.later"); } catch { /* storage unavailable */ }
+    $("#update").hidden = !newer(version, state.version) || later === version;
+    $("#update-version").textContent = `mac-cron-manager ${version}`;
+    $("#update-cmd").textContent = state.update;
+    $("#update-later").onclick = () => {
+      try { localStorage.setItem("mcm.later", version); } catch { /* storage unavailable */ }
+      $("#update").hidden = true;
+    };
+  } catch { /* offline, or GitHub unreachable: try again later */ }
+}
+$("#update-copy").onclick = async () => {
+  await navigator.clipboard.writeText(state.update);
+  toast("update command copied");
+};
+
 async function refreshLaunchd() {
   try { ld = (await api("/api/launchd")).jobs; render(); } catch { /* agent down: refresh() says so */ }
 }
@@ -704,6 +742,8 @@ setInterval(() => { $("#clock").textContent = new Date().toLocaleString("sv-SE")
 (function poll() {
   refresh().finally(() => setTimeout(poll, state.jobs.some((j) => j.running_since) ? 1000 : 2500));
 })();
+setTimeout(checkForUpdate, 2000);
+setInterval(checkForUpdate, 6 * 3600 * 1000);
 (function pollLaunchd() {
   refreshLaunchd().finally(() => setTimeout(pollLaunchd, tab === "launchd" ? 3000 : 15000));
 })();

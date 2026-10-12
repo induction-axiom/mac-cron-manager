@@ -15,7 +15,8 @@ that uninstalled apps left behind.
 - **What else starts by itself?** The launchd tab lists the agents and daemons
   your apps have installed, and flags the ones whose app is gone.
 - **Stays on your Mac.** A small local agent serves the dashboard at
-  `127.0.0.1:7878`. Nothing is sent anywhere.
+  `127.0.0.1:7878`. Nothing is sent anywhere; the page only asks GitHub
+  whether there's a newer version.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/launchd-dark.png">
